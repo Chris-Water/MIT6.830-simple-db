@@ -1,8 +1,8 @@
 package simpledb.storage;
 
 import java.io.Serializable;
-import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 
 /**
  * Tuple maintains information about the contents of a tuple. Tuples have a
@@ -10,6 +10,8 @@ import java.util.Iterator;
  * with the data for each field.
  */
 public class Tuple implements Serializable {
+
+    List<Field> fields;
 
     private static final long serialVersionUID = 1L;
 

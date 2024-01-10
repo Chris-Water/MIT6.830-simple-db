@@ -1,17 +1,16 @@
 package simpledb;
 
-import java.util.NoSuchElementException;
-
+import junit.framework.JUnit4TestAdapter;
+import org.junit.Assert;
 import org.junit.Test;
-
 import simpledb.common.Type;
 import simpledb.common.Utility;
 import simpledb.storage.TupleDesc;
 import simpledb.systemtest.SimpleDbTestBase;
 
+import java.util.NoSuchElementException;
+
 import static org.junit.Assert.*;
-import org.junit.Assert;
-import junit.framework.JUnit4TestAdapter;
 
 public class TupleDescTest extends SimpleDbTestBase {
 
@@ -23,7 +22,6 @@ public class TupleDescTest extends SimpleDbTestBase {
 
         td1 = Utility.getTupleDesc(1, "td1");
         td2 = Utility.getTupleDesc(2, "td2");
-
         // test td1.combine(td2)
         td3 = TupleDesc.merge(td1, td2);
         assertEquals(3 , td3.numFields());
