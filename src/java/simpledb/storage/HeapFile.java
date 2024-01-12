@@ -124,7 +124,7 @@ public class HeapFile implements DbFile {
     @Override
     public DbFileIterator iterator(TransactionId tid) {
         // some code goes here
-        return null;
+        return new HeapFileIterator(this, tid);
     }
 
 }

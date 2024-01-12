@@ -21,33 +21,6 @@ import java.util.*;
  */
 public class Catalog {
 
-    private static class Table {
-
-        private DbFile file;
-
-        private String name;
-
-        private String primaryKey;
-
-        public Table(DbFile file, String name, String primaryKey) {
-            this.file = file;
-            this.name = name;
-            this.primaryKey = primaryKey;
-        }
-
-        public DbFile getFile() {
-            return file;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public String getPrimaryKey() {
-            return primaryKey;
-        }
-    }
-
     private final Map<Integer, Table> catalog;
 
     /**
@@ -101,7 +74,9 @@ public class Catalog {
     public int getTableId(String name) throws NoSuchElementException {
         // some code goes here
         Optional<Integer> tableId = catalog.values().stream().filter(table -> table.getName().equals(name)).map(table -> table.getFile().getId()).findFirst();
-        if (!tableId.isPresent()) throw new NoSuchElementException("the table doesn't exist");
+        if (!tableId.isPresent()) {
+            throw new NoSuchElementException("the table doesn't exist");
+        }
         return tableId.get();
     }
 
@@ -114,7 +89,9 @@ public class Catalog {
      */
     public TupleDesc getTupleDesc(int tableid) throws NoSuchElementException {
         // some code goes here
-        if (!catalog.containsKey(tableid)) throw new NoSuchElementException("the table doesn't exist");
+        if (!catalog.containsKey(tableid)) {
+            throw new NoSuchElementException("the table doesn't exist");
+        }
         return catalog.get(tableid).getFile().getTupleDesc();
     }
 
@@ -127,13 +104,17 @@ public class Catalog {
      */
     public DbFile getDatabaseFile(int tableid) throws NoSuchElementException {
         // some code goes here
-        if (!catalog.containsKey(tableid)) throw new NoSuchElementException("the table doesn't exist");
+        if (!catalog.containsKey(tableid)) {
+            throw new NoSuchElementException("the table doesn't exist");
+        }
         return catalog.get(tableid).getFile();
     }
 
     public String getPrimaryKey(int tableid) {
         // some code goes here
-        if (!catalog.containsKey(tableid)) throw new NoSuchElementException("the table doesn't exist");
+        if (!catalog.containsKey(tableid)) {
+            throw new NoSuchElementException("the table doesn't exist");
+        }
         return catalog.get(tableid).getPrimaryKey();
     }
 
@@ -144,7 +125,9 @@ public class Catalog {
 
     public String getTableName(int id) {
         // some code goes here
-        if (!catalog.containsKey(id)) throw new NoSuchElementException("the table doesn't exist");
+        if (!catalog.containsKey(id)) {
+            throw new NoSuchElementException("the table doesn't exist");
+        }
         return catalog.get(id).getName();
     }
 
@@ -179,18 +162,18 @@ public class Catalog {
                 for (String e : els) {
                     String[] els2 = e.trim().split(" ");
                     names.add(els2[0].trim());
-                    if (els2[1].trim().equalsIgnoreCase("int"))
+                    if (els2[1].trim().equalsIgnoreCase("int")) {
                         types.add(Type.INT_TYPE);
-                    else if (els2[1].trim().equalsIgnoreCase("string"))
+                    } else if (els2[1].trim().equalsIgnoreCase("string")) {
                         types.add(Type.STRING_TYPE);
-                    else {
+                    } else {
                         System.out.println("Unknown type " + els2[1]);
                         System.exit(0);
                     }
                     if (els2.length == 3) {
-                        if (els2[2].trim().equals("pk"))
+                        if (els2[2].trim().equals("pk")) {
                             primaryKey = els2[0].trim();
-                        else {
+                        } else {
                             System.out.println("Unknown annotation " + els2[2]);
                             System.exit(0);
                         }
@@ -209,6 +192,33 @@ public class Catalog {
         } catch (IndexOutOfBoundsException e) {
             System.out.println("Invalid catalog entry : " + line);
             System.exit(0);
+        }
+    }
+
+    private static class Table {
+
+        private DbFile file;
+
+        private String name;
+
+        private String primaryKey;
+
+        public Table(DbFile file, String name, String primaryKey) {
+            this.file = file;
+            this.name = name;
+            this.primaryKey = primaryKey;
+        }
+
+        public DbFile getFile() {
+            return file;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public String getPrimaryKey() {
+            return primaryKey;
         }
     }
 }

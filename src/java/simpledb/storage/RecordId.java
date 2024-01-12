@@ -51,7 +51,9 @@ public class RecordId implements Serializable {
     @Override
     public boolean equals(Object o) {
         // some code goes here
-        if (!(o instanceof RecordId)) return false;
+        if (!(o instanceof RecordId)) {
+            return false;
+        }
         RecordId recordId = (RecordId) o;
         return pageId.equals(recordId.getPageId()) && tupleNumber == recordId.getTupleNumber();
     }
