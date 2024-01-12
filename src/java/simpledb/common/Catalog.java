@@ -21,7 +21,7 @@ import java.util.*;
  */
 public class Catalog {
 
-    private class Table {
+    private static class Table {
 
         private DbFile file;
 

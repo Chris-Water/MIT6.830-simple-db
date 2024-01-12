@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.stream.IntStream;
 
 /**
  * Each instance of HeapPage stores data for one page of HeapFiles and
@@ -25,9 +26,10 @@ public class HeapPage implements Page {
     final byte[] header;
     final Tuple[] tuples;
     final int numSlots;
-
-    byte[] oldData;
     private final Byte oldDataLock = (byte) 0;
+    byte[] oldData;
+    private boolean isDirty;
+    private TransactionId lastModifiedTid;
 
     /**
      * Create a HeapPage from a set of bytes of data read from disk.
@@ -54,20 +56,36 @@ public class HeapPage implements Page {
 
         // allocate and read the header slots of this page
         header = new byte[getHeaderSize()];
-        for (int i = 0; i < header.length; i++)
+        for (int i = 0; i < header.length; i++) {
             header[i] = dis.readByte();
+        }
 
         tuples = new Tuple[numSlots];
         try {
             // allocate and read the actual records of this page
-            for (int i = 0; i < tuples.length; i++)
+            for (int i = 0; i < tuples.length; i++) {
                 tuples[i] = readNextTuple(dis, i);
+            }
         } catch (NoSuchElementException e) {
             e.printStackTrace();
         }
         dis.close();
 
         setBeforeImage();
+    }
+
+    /**
+     * Static method to generate a byte array corresponding to an empty
+     * HeapPage.
+     * Used to add new, empty pages to the file. Passing the results of
+     * this method to the HeapPage constructor will create a HeapPage with
+     * no valid tuples in it.
+     *
+     * @return The returned ByteArray.
+     */
+    public static byte[] createEmptyPageData() {
+        int len = BufferPool.getPageSize();
+        return new byte[len]; //all 0
     }
 
     /**
@@ -96,6 +114,7 @@ public class HeapPage implements Page {
      * Return a view of this page before it was modified
      * -- used by recovery
      */
+    @Override
     public HeapPage getBeforeImage() {
         try {
             byte[] oldDataRef = null;
@@ -111,6 +130,7 @@ public class HeapPage implements Page {
         return null;
     }
 
+    @Override
     public void setBeforeImage() {
         synchronized (oldDataLock) {
             oldData = getPageData().clone();
@@ -120,6 +140,7 @@ public class HeapPage implements Page {
     /**
      * @return the PageId associated with this page.
      */
+    @Override
     public HeapPageId getId() {
         // some code goes here
         return pid;
@@ -170,6 +191,7 @@ public class HeapPage implements Page {
      * @return A byte array correspond to the bytes of this page.
      * @see #HeapPage
      */
+    @Override
     public byte[] getPageData() {
         int len = BufferPool.getPageSize();
         ByteArrayOutputStream baos = new ByteArrayOutputStream(len);
@@ -232,20 +254,6 @@ public class HeapPage implements Page {
     }
 
     /**
-     * Static method to generate a byte array corresponding to an empty
-     * HeapPage.
-     * Used to add new, empty pages to the file. Passing the results of
-     * this method to the HeapPage constructor will create a HeapPage with
-     * no valid tuples in it.
-     *
-     * @return The returned ByteArray.
-     */
-    public static byte[] createEmptyPageData() {
-        int len = BufferPool.getPageSize();
-        return new byte[len]; //all 0
-    }
-
-    /**
      * Delete the specified tuple from the page; the corresponding header bit should be updated to reflect
      * that it is no longer stored on any page.
      *
@@ -275,6 +283,7 @@ public class HeapPage implements Page {
      * Marks this page as dirty/not dirty and record that transaction
      * that did the dirtying
      */
+    @Override
     public void markDirty(boolean dirty, TransactionId tid) {
         // some code goes here
         // not necessary for lab1
@@ -283,10 +292,11 @@ public class HeapPage implements Page {
     /**
      * Returns the tid of the transaction that last dirtied this page, or null if the page is not dirty
      */
+    @Override
     public TransactionId isDirty() {
         // some code goes here
         // Not necessary for lab1
-        return null;
+        return isDirty ? lastModifiedTid : null;
     }
 
     /**
@@ -294,7 +304,7 @@ public class HeapPage implements Page {
      */
     public int getNumEmptySlots() {
         // some code goes here
-        return (int) Arrays.stream(tuples).filter(Objects::isNull).count();
+        return (int) IntStream.range(0, numSlots).filter(i -> !isSlotUsed(i)).count();
     }
 
     /**

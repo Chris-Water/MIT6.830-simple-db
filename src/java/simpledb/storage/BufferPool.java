@@ -1,5 +1,6 @@
 package simpledb.storage;
 
+import simpledb.common.Database;
 import simpledb.common.DbException;
 import simpledb.common.Permissions;
 import simpledb.transaction.TransactionAbortedException;
@@ -26,27 +27,22 @@ import java.util.concurrent.locks.ReentrantLock;
 public class BufferPool {
 
 
-    private final Integer numPages;
-
-    private final Map<Integer, Page> bufferPool;
-    private final ReentrantLock lock;
-    private final Map<TransactionId, Condition> transactionConditions;
-
-    private TransactionId currentTid;
-
-    /**
-     * Bytes per page, including header.
-     */
-    private static final int DEFAULT_PAGE_SIZE = 4096;
-
-    private static int pageSize = DEFAULT_PAGE_SIZE;
-
     /**
      * Default number of pages passed to the constructor. This is used by
      * other classes. BufferPool should use the numPages argument to the
      * constructor instead.
      */
     public static final int DEFAULT_PAGES = 50;
+    /**
+     * Bytes per page, including header.
+     */
+    private static final int DEFAULT_PAGE_SIZE = 4096;
+    private static int pageSize = DEFAULT_PAGE_SIZE;
+    private final Integer numPages;
+    private final Map<Integer, Page> bufferPool;
+    private final ReentrantLock lock;
+    private final Map<TransactionId, Condition> transactionConditions;
+    private TransactionId currentTid;
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -90,8 +86,7 @@ public class BufferPool {
      * @param pid  the ID of the requested page
      * @param perm the requested permissions on the page
      */
-    public Page getPage(TransactionId tid, PageId pid, Permissions perm)
-            throws TransactionAbortedException, DbException {
+    public Page getPage(TransactionId tid, PageId pid, Permissions perm) throws TransactionAbortedException, DbException {
         // some code goes here
         lock.lock(); // 获取锁
         try {
@@ -101,18 +96,24 @@ public class BufferPool {
             }
             currentTid = tid;
             //用LRU算法作为淘汰策略
-            Page page = bufferPool.get(pid.getTableId());
-            if (page == null) {
-                throw new DbException("Page not found in BufferPool: " + pid);
-                //需要发出缺页中断去磁盘读取,如果缓存页面超过numPages需要触发淘汰页面策略
+            Page page;
+            if (!bufferPool.containsKey(pid.hashCode())) {
+                //缓存未命中
+                DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+                page = dbFile.readPage(pid);
+                bufferPool.put(pid.hashCode(), page);
+                if (bufferPool.size() > numPages) {
+                    evictPage();
+                }
             } else {
-                //否则正常执行LRU
-                bufferPool.remove(pid.getTableId());
-                bufferPool.put(pid.getTableId(), page);
+                // 返回页面
+                page = bufferPool.get(pid.hashCode());
+                bufferPool.remove(pid.hashCode());
+                bufferPool.put(pid.hashCode(), page);
             }
             currentTid = null;
             condition.signalAll(); // 唤醒等待的事务
-            return page; // 返回页面
+            return page;
         } catch (InterruptedException e) {
             throw new TransactionAbortedException();
         } finally {
@@ -180,8 +181,7 @@ public class BufferPool {
      * @param tableId the table to add the tuple to
      * @param t       the tuple to add
      */
-    public void insertTuple(TransactionId tid, int tableId, Tuple t)
-            throws DbException, IOException, TransactionAbortedException {
+    public void insertTuple(TransactionId tid, int tableId, Tuple t) throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
     }
@@ -199,8 +199,7 @@ public class BufferPool {
      * @param tid the transaction deleting the tuple.
      * @param t   the tuple to delete
      */
-    public void deleteTuple(TransactionId tid, Tuple t)
-            throws DbException, IOException, TransactionAbortedException {
+    public void deleteTuple(TransactionId tid, Tuple t) throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
     }
@@ -255,6 +254,7 @@ public class BufferPool {
     private synchronized void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
+        //LRU移除pool头部的元素 如果是脏的需要刷盘
     }
 
 }
