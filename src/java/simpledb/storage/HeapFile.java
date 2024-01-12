@@ -6,6 +6,7 @@ import simpledb.transaction.TransactionId;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,7 +21,6 @@ import java.util.List;
  * @see HeapPage#HeapPage
  */
 public class HeapFile implements DbFile {
-    private final HeapPage[] heapPages;
     private final File file;
     private final TupleDesc tupleDesc;
 
@@ -34,9 +34,6 @@ public class HeapFile implements DbFile {
         // some code goes here
         tupleDesc = td;
         file = f;
-        heapPages = new HeapPage[(int) Math.ceil(1.0 * file.length() / BufferPool.getPageSize())];
-//        System.out.println("file.length = " + file.length());
-//        System.out.println(heapPages.length);
     }
 
     /**
@@ -79,16 +76,17 @@ public class HeapFile implements DbFile {
     @Override
     public Page readPage(PageId pid) {
         // some code goes here
-        int pageNumber = pid.getPageNumber();
-        if (pageNumber > heapPages.length - 1) {
-            throw new IllegalArgumentException("page does not exist");
-        }
-        try {
-            heapPages[pageNumber] = new HeapPage(new HeapPageId(pid.getTableId(), pid.getPageNumber()), HeapPage.createEmptyPageData());
+        int startPosition = pid.getPageNumber() * BufferPool.getPageSize();
+        byte[] data = HeapPage.createEmptyPageData();
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(this.file, "r")) {
+            //查询偏移量
+            randomAccessFile.seek(startPosition);
+            randomAccessFile.read(data, 0, data.length);
+            return new HeapPage((HeapPageId) pid, data);
         } catch (IOException e) {
             e.printStackTrace();
         }
-        return heapPages[pageNumber];
+        return null;
     }
 
     // see DbFile.java for javadocs
@@ -103,7 +101,7 @@ public class HeapFile implements DbFile {
      */
     public int numPages() {
         // some code goes here
-        return heapPages.length;
+        return (int) (file.length() / BufferPool.getPageSize());
     }
 
     // see DbFile.java for javadocs
