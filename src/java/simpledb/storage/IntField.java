@@ -1,9 +1,10 @@
 package simpledb.storage;
 
-import simpledb.execution.Predicate;
 import simpledb.common.Type;
+import simpledb.execution.Predicate;
 
-import java.io.*;
+import java.io.DataOutputStream;
+import java.io.IOException;
 
 /**
  * Instance of Field that stores a single integer.
@@ -14,10 +15,6 @@ public class IntField implements Field {
 
     private final int value;
 
-    public int getValue() {
-        return value;
-    }
-
     /**
      * Constructor.
      *
@@ -25,6 +22,10 @@ public class IntField implements Field {
      */
     public IntField(int i) {
         value = i;
+    }
+
+    public int getValue() {
+        return value;
     }
 
     public String toString() {
