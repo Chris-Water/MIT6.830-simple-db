@@ -59,12 +59,12 @@ public class IntegerAggregator implements Aggregator {
             Tuple agTuple;
             if (gbfield == Aggregator.NO_GROUPING) {
                 //未group by
-                Type[] types = {aggregation.getType()};
+                Type[] types = {Type.INT_TYPE};
                 String[] name = {String.format("%s(%s)", op, tup.getTupleDesc().getFieldName(agfield))};
                 desc = new TupleDesc(types, name);
                 agTuple = new Tuple(desc);
             } else {
-                Type[] types = {gbType, aggregation.getType()};
+                Type[] types = {gbType, Type.INT_TYPE};
                 String[] name = {tup.getTupleDesc().getFieldName(gbfield), String.format("%s(%s)", op, tup.getTupleDesc().getFieldName(agfield))};
                 desc = new TupleDesc(types, name);
                 agTuple = new Tuple(desc);
