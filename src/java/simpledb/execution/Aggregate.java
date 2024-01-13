@@ -6,8 +6,6 @@ import simpledb.storage.Tuple;
 import simpledb.storage.TupleDesc;
 import simpledb.transaction.TransactionAbortedException;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.NoSuchElementException;
 
 
@@ -25,7 +23,6 @@ public class Aggregate extends Operator {
     private int groupingField;
     private Aggregator.Op op;
     private Aggregator aggregator;
-    private List<Tuple> tuples = new ArrayList<>();
     private OpIterator it = null;
 
 
@@ -60,7 +57,7 @@ public class Aggregate extends Operator {
             String[] name = {groupFieldName(), String.format("%s(%s)", op, aggregateFieldName())};
             aggregateTupleDesc = new TupleDesc(types, name);
         }
-        it = aggregator.iterator();
+
     }
 
     public static String nameOfAggregatorOp(Aggregator.Op aop) {
@@ -145,6 +142,7 @@ public class Aggregate extends Operator {
     public void rewind() throws DbException, TransactionAbortedException {
         // some code goes here
         it = aggregator.iterator();
+        it.open();
     }
 
     /**
