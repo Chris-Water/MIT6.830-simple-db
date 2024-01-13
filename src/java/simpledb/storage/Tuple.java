@@ -13,12 +13,10 @@ import java.util.stream.Collectors;
  */
 public class Tuple implements Serializable {
 
-    private List<Field> fields;
-
-    private TupleDesc tupleDesc;
-
-    private RecordId recordId;
     private static final long serialVersionUID = 1L;
+    private List<Field> fields;
+    private TupleDesc tupleDesc;
+    private RecordId recordId;
 
     /**
      * Create a new tuple with the specified schema (type).
@@ -30,7 +28,7 @@ public class Tuple implements Serializable {
         // 根据描述创建一行数据
         tupleDesc = td;
         fields = new ArrayList<>(td.numFields());
-        for (int i = 0; i <td.numFields() ; i++) {
+        for (int i = 0; i < td.numFields(); i++) {
             fields.add(null);
         }
     }
@@ -70,7 +68,9 @@ public class Tuple implements Serializable {
      */
     public void setField(int i, Field f) {
         // 校验index
-        if (i < 0 || i >= fields.size()) throw new IllegalArgumentException("invalid index");
+        if (i < 0 || i >= fields.size()) {
+            throw new IllegalArgumentException("invalid index");
+        }
         fields.set(i, f);
     }
 
@@ -80,7 +80,9 @@ public class Tuple implements Serializable {
      */
     public Field getField(int i) {
         // some code goes here
-        if (i < 0 || i >= fields.size()) throw new IllegalArgumentException("invalid index");
+        if (i < 0 || i >= fields.size()) {
+            throw new IllegalArgumentException("invalid index");
+        }
         return fields.get(i);
     }
 
@@ -92,6 +94,7 @@ public class Tuple implements Serializable {
      * <p>
      * where \t is any whitespace (except a newline)
      */
+    @Override
     public String toString() {
         // some code goes here
         return fields.stream().map(Field::toString).collect(Collectors.joining("\t"));

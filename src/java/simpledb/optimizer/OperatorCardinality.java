@@ -100,7 +100,7 @@ public class OperatorCardinality {
         int child1Card = 1;
         int child2Card = 1;
 
-        String[] tmp1 = j.getJoinField1Name().split("[.]");
+        String[] tmp1 = j. getJoinField1Name().split("[.]");
         String tableAlias1 = tmp1[0];
         String pureFieldName1 = tmp1[1];
 
