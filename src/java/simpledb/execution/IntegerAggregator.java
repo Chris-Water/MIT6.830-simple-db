@@ -57,6 +57,7 @@ public class IntegerAggregator implements Aggregator {
         int idx = gbfield == Aggregator.NO_GROUPING ? 0 : 1;
         if (!map.containsKey(gb)) {
             Tuple agTuple;
+            //构造tupleDesc
             if (gbfield == Aggregator.NO_GROUPING) {
                 //未group by
                 Type[] types = {Type.INT_TYPE};

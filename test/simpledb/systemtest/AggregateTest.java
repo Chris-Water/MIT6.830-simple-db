@@ -1,11 +1,5 @@
 package simpledb.systemtest;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 import org.junit.Test;
 import simpledb.common.Database;
 import simpledb.common.DbException;
@@ -17,9 +11,14 @@ import simpledb.storage.HeapFile;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 public class AggregateTest extends SimpleDbTestBase {
-    public void validateAggregate(DbFile table, Aggregator.Op operation, int aggregateColumn, int groupColumn, List<List<Integer>> expectedResult)
-            throws DbException, TransactionAbortedException {
+    public void validateAggregate(DbFile table, Aggregator.Op operation, int aggregateColumn, int groupColumn, List<List<Integer>> expectedResult) throws DbException, TransactionAbortedException {
         TransactionId tid = new TransactionId();
         SeqScan ss = new SeqScan(tid, table.getId(), "");
         Aggregate ag = new Aggregate(ss, aggregateColumn, groupColumn, operation);
@@ -81,47 +80,52 @@ public class AggregateTest extends SimpleDbTestBase {
     private final static int ROWS = 1024;
     private final static int MAX_VALUE = 64;
     private final static int COLUMNS = 3;
-    private void doAggregate(Aggregator.Op operation, int groupColumn)
-            throws IOException, DbException, TransactionAbortedException {
+
+    private void doAggregate(Aggregator.Op operation, int groupColumn) throws IOException, DbException, TransactionAbortedException {
         // Create the table
         List<List<Integer>> createdTuples = new ArrayList<>();
-        HeapFile table = SystemTestUtil.createRandomHeapFile(
-                COLUMNS, ROWS, MAX_VALUE, null, createdTuples);
+        HeapFile table = SystemTestUtil.createRandomHeapFile(COLUMNS, ROWS, MAX_VALUE, null, createdTuples);
 
         // Compute the expected answer
-        List<List<Integer>> expected =
-                aggregate(createdTuples, operation, groupColumn);
+        List<List<Integer>> expected = aggregate(createdTuples, operation, groupColumn);
 
         // validate that we get the answer
         validateAggregate(table, operation, 1, groupColumn, expected);
     }
 
-    @Test public void testSum() throws IOException, DbException, TransactionAbortedException {
+    @Test
+    public void testSum() throws IOException, DbException, TransactionAbortedException {
         doAggregate(Aggregator.Op.SUM, 0);
     }
 
-    @Test public void testMin() throws IOException, DbException, TransactionAbortedException {
+    @Test
+    public void testMin() throws IOException, DbException, TransactionAbortedException {
         doAggregate(Aggregator.Op.MIN, 0);
     }
 
-    @Test public void testMax() throws IOException, DbException, TransactionAbortedException {
+    @Test
+    public void testMax() throws IOException, DbException, TransactionAbortedException {
         doAggregate(Aggregator.Op.MAX, 0);
     }
 
-    @Test public void testCount() throws IOException, DbException, TransactionAbortedException {
+    @Test
+    public void testCount() throws IOException, DbException, TransactionAbortedException {
         doAggregate(Aggregator.Op.COUNT, 0);
     }
 
-    @Test public void testAverage() throws IOException, DbException, TransactionAbortedException {
+    @Test
+    public void testAverage() throws IOException, DbException, TransactionAbortedException {
         doAggregate(Aggregator.Op.AVG, 0);
     }
 
-    @Test public void testAverageNoGroup()
-            throws IOException, DbException, TransactionAbortedException {
+    @Test
+    public void testAverageNoGroup() throws IOException, DbException, TransactionAbortedException {
         doAggregate(Aggregator.Op.AVG, Aggregator.NO_GROUPING);
     }
 
-    /** Make test compatible with older version of ant. */
+    /**
+     * Make test compatible with older version of ant.
+     */
     public static junit.framework.Test suite() {
         return new junit.framework.JUnit4TestAdapter(AggregateTest.class);
     }

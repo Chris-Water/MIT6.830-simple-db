@@ -48,12 +48,13 @@ public class Aggregate extends Operator {
         Type afieldType = child.getTupleDesc().getFieldType(aggregateField);
         Type gfieldType = gfield == Aggregator.NO_GROUPING ? null : child.getTupleDesc().getFieldType(gfield);
         aggregator = afieldType == Type.INT_TYPE ? new IntegerAggregator(gfield, gfieldType, afield, op) : new StringAggregator(gfield, gfieldType, afield, op);
+        //构造tupleDesc
         if (gfield == Aggregator.NO_GROUPING) {
-            Type[] types = {afieldType};
+            Type[] types = {Type.INT_TYPE};
             String[] name = {String.format("%s(%s)", op, aggregateFieldName())};
             aggregateTupleDesc = new TupleDesc(types, name);
         } else {
-            Type[] types = {gfieldType, afieldType};
+            Type[] types = {gfieldType, Type.INT_TYPE};
             String[] name = {groupFieldName(), String.format("%s(%s)", op, aggregateFieldName())};
             aggregateTupleDesc = new TupleDesc(types, name);
         }
@@ -113,6 +114,7 @@ public class Aggregate extends Operator {
     public void open() throws NoSuchElementException, DbException, TransactionAbortedException {
         // some code goes here
         child.open();
+        //合并到聚合
         while (child.hasNext()) {
             Tuple next = child.next();
             aggregator.mergeTupleIntoGroup(next);

@@ -6,10 +6,9 @@ import simpledb.common.DbException;
 import simpledb.transaction.TransactionId;
 
 import java.io.*;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.stream.IntStream;
 
 /**
@@ -21,12 +20,12 @@ import java.util.stream.IntStream;
  */
 public class HeapPage implements Page {
 
-    final HeapPageId pid;
     final TupleDesc td;
     final byte[] header;
     final Tuple[] tuples;
     final int numSlots;
     private final Byte oldDataLock = (byte) 0;
+    HeapPageId pid;
     byte[] oldData;
     private boolean isDirty;
     private TransactionId lastModifiedTid;
@@ -104,7 +103,6 @@ public class HeapPage implements Page {
      * @return the number of bytes in the header of a page in a HeapFile with each tuple occupying tupleSize bytes
      */
     private int getHeaderSize() {
-
         // some code goes here
         return (int) Math.ceil(numSlots / 8.0);
 
@@ -142,7 +140,6 @@ public class HeapPage implements Page {
      */
     @Override
     public HeapPageId getId() {
-        // some code goes here
         return pid;
     }
 
@@ -150,8 +147,7 @@ public class HeapPage implements Page {
      * Suck up tuples from the source file.
      */
     private Tuple readNextTuple(DataInputStream dis, int slotId) throws NoSuchElementException {
-        // if associated bit is not set, read forward to the next tuple, and
-        // return null.
+        // if associated bit is not set, read forward to the next tuple, and return null.
         if (!isSlotUsed(slotId)) {
             for (int i = 0; i < td.getSize(); i++) {
                 try {
@@ -209,7 +205,6 @@ public class HeapPage implements Page {
 
         // create the tuples
         for (int i = 0; i < tuples.length; i++) {
-
             // empty slot
             if (!isSlotUsed(i)) {
                 for (int j = 0; j < td.getSize(); j++) {
@@ -222,7 +217,6 @@ public class HeapPage implements Page {
                 }
                 continue;
             }
-
             // non-empty slot
             for (int j = 0; j < td.numFields(); j++) {
                 Field f = tuples[i].getField(j);
@@ -263,7 +257,30 @@ public class HeapPage implements Page {
      */
     public void deleteTuple(Tuple t) throws DbException {
         // some code goes here
-        // not necessary for lab1
+        if (!pid.equals(t.getRecordId().getPageId())) {
+            throw new DbException("tuple is not on this page");
+        }
+        //找到要删除的页的下标,将header对应位标记为未使用
+        int idx = -1;
+        for (int i = 0; i < tuples.length; i++) {
+            Tuple tuple = tuples[i];
+            if (tuple == null) {
+                continue;
+            }
+            if (t.getRecordId().equals(tuple.getRecordId())) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx != -1) {
+            if (!isSlotUsed(idx)) {
+                throw new DbException("tuple is empty");
+            }
+            markSlotUsed(idx, false);
+        } else {
+            throw new DbException("tuple is not on this page");
+        }
+
     }
 
     /**
@@ -276,7 +293,19 @@ public class HeapPage implements Page {
      */
     public void insertTuple(Tuple t) throws DbException {
         // some code goes here
-        // not necessary for lab1
+        if (getNumEmptySlots() == 0) {
+            throw new DbException("the page is full");
+        }
+        if (!td.equals(t.getTupleDesc())) {
+            throw new DbException("tupleDesc is mismatch");
+        }
+        //找到一个未使用的槽
+        OptionalInt emptySlot = IntStream.range(0, numSlots).filter(i -> !isSlotUsed(i)).findFirst();
+        if (emptySlot.isPresent()) {
+            tuples[emptySlot.getAsInt()] = t;
+            markSlotUsed(emptySlot.getAsInt(), true);
+        }
+        pid = (HeapPageId) t.getRecordId().getPageId();
     }
 
     /**
@@ -286,7 +315,8 @@ public class HeapPage implements Page {
     @Override
     public void markDirty(boolean dirty, TransactionId tid) {
         // some code goes here
-        // not necessary for lab1
+        isDirty = dirty;
+        lastModifiedTid = tid;
     }
 
     /**
@@ -324,7 +354,18 @@ public class HeapPage implements Page {
      */
     private void markSlotUsed(int i, boolean value) {
         // some code goes here
-        // not necessary for lab1
+        // 把header中对应的bit 设置为 value
+        int idx = i / 8;
+        int bit = i % 8;
+        byte b = header[idx];
+        if (value) {
+            //fill
+            header[idx] = (byte) ((1 << bit) | b);
+        } else {
+            //clear
+            header[idx] = (byte) (header[idx] & ~(1 << bit));
+        }
+
     }
 
     /**
@@ -333,7 +374,7 @@ public class HeapPage implements Page {
      */
     public Iterator<Tuple> iterator() {
         // some code goes here
-        return Arrays.stream(tuples).filter(Objects::nonNull).iterator();
+        return IntStream.range(0, numSlots).filter(this::isSlotUsed).mapToObj(idx -> tuples[idx]).iterator();
     }
 
 }
