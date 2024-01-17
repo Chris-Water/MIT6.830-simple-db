@@ -11,6 +11,8 @@ import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Inserts tuples read from the child operator into the tableId specified in the
@@ -21,9 +23,11 @@ public class Insert extends Operator {
     private static final long serialVersionUID = 1L;
 
     private final TransactionId tid;
-    private OpIterator child;
     private final int tableId;
     private final TupleDesc desc;
+    private OpIterator child;
+    private List<Tuple> toInsert = null;
+
 
     /**
      * Constructor.
@@ -56,6 +60,10 @@ public class Insert extends Operator {
         // some code goes here
         super.open();
         child.open();
+        toInsert = new ArrayList<>();
+        while (child.hasNext()) {
+            toInsert.add(child.next());
+        }
     }
 
     @Override
@@ -68,7 +76,8 @@ public class Insert extends Operator {
     @Override
     public void rewind() throws DbException, TransactionAbortedException {
         // some code goes here
-        child.rewind();
+        close();
+        open();
     }
 
     /**
@@ -87,16 +96,19 @@ public class Insert extends Operator {
     @Override
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
         // some code goes here
+        if (toInsert == null) {
+            return null;
+        }
         int count = 0;
         BufferPool bufferPool = Database.getBufferPool();
         try {
-            while (child.hasNext()) {
-                Tuple next = child.next();
-                bufferPool.insertTuple(tid, tableId, next);
+            for (Tuple t : toInsert) {
+                bufferPool.insertTuple(tid, tableId, t);
                 count++;
             }
             Tuple tuple = new Tuple(desc);
             tuple.setField(0, new IntField(count));
+            toInsert = null;
             return tuple;
         } catch (IOException e) {
             throw new RuntimeException(e);

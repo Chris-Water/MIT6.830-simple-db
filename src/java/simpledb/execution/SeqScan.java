@@ -69,7 +69,8 @@ public class SeqScan implements OpIterator {
         for (int i = 0; i < count; i++) {
             TupleDesc.TDItem item = it.next();
             types[i] = item.fieldType;
-            fieldName[i] = tableAlias + "." + item.fieldName;
+            String name = tableAlias.isEmpty() ? item.fieldName : tableAlias + "." + item.fieldName;
+            fieldName[i] = name;
         }
         return new TupleDesc(types, fieldName);
     }

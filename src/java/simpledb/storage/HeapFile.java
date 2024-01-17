@@ -167,12 +167,12 @@ public class HeapFile implements DbFile {
         @Override
         public void open() throws DbException, TransactionAbortedException {
             //在bufferPool 获取page 跳过空页
-            int pgNo = -1;
-            do {
-                pgNo++;
-                curp = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), pgNo), Permissions.READ_ONLY);
-            } while (curp.numSlots == curp.getNumEmptySlots());
-            //curp = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), 0), Permissions.READ_ONLY);
+//            int pgNo = -1;
+//            do {
+//                pgNo++;
+//                curp = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), pgNo), Permissions.READ_ONLY);
+//            } while (curp.numSlots == curp.getNumEmptySlots());
+            curp = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), 0), Permissions.READ_ONLY);
             it = curp.iterator();
         }
 

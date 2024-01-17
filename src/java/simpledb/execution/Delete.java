@@ -11,6 +11,8 @@ import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * The delete operator. Delete reads tuples from its child operator and removes
@@ -22,6 +24,7 @@ public class Delete extends Operator {
     private TransactionId tid;
     private OpIterator child;
     private TupleDesc desc;
+    private List<Tuple> toDelete;
 
 
     /**
@@ -49,6 +52,10 @@ public class Delete extends Operator {
         // some code goes here
         super.open();
         child.open();
+        toDelete = new ArrayList<>();
+        while (child.hasNext()) {
+            toDelete.add(child.next());
+        }
     }
 
     @Override
@@ -61,7 +68,8 @@ public class Delete extends Operator {
     @Override
     public void rewind() throws DbException, TransactionAbortedException {
         // some code goes here
-        child.rewind();
+        close();
+        open();
     }
 
     /**
@@ -76,16 +84,19 @@ public class Delete extends Operator {
     @Override
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
         // some code goes here
+        if (toDelete == null) {
+            return null;
+        }
         int count = 0;
         BufferPool bufferPool = Database.getBufferPool();
         try {
-            while (child.hasNext()) {
-                Tuple next = child.next();
-                bufferPool.deleteTuple(tid, next);
+            for (Tuple t : toDelete) {
+                bufferPool.deleteTuple(tid, t);
                 count++;
             }
-            Tuple tuple = new Tuple(new TupleDesc(new Type[]{Type.INT_TYPE}));
+            Tuple tuple = new Tuple(desc);
             tuple.setField(0, new IntField(count));
+            toDelete = null;
             return tuple;
         } catch (IOException e) {
             throw new RuntimeException(e);
