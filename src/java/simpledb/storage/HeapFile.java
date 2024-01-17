@@ -26,7 +26,6 @@ import java.util.List;
 public class HeapFile implements DbFile {
     private final File file;
     private final TupleDesc tupleDesc;
-    //private final Map<Integer, Page> pages;
 
     /**
      * Constructs a heap file backed by the specified file.
@@ -87,9 +86,7 @@ public class HeapFile implements DbFile {
             //查询偏移量
             randomAccessFile.seek(startPosition);
             randomAccessFile.read(data, 0, data.length);
-            HeapPage page = new HeapPage((HeapPageId) pid, data);
-            //pages.putIfAbsent(pid.hashCode(), page);
-            return page;
+            return new HeapPage((HeapPageId) pid, data);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -109,7 +106,6 @@ public class HeapFile implements DbFile {
             randomAccessFile.seek(startPosition);
             randomAccessFile.write(data, 0, data.length);
         }
-        //pages.putIfAbsent(page.getId().hashCode(), page);
     }
 
     /**

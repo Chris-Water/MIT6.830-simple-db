@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -227,7 +228,12 @@ public class BufferPool {
      */
     public synchronized void flushAllPages() throws IOException {
         // some code goes here
-        // not necessary for lab1
+        //找出所有的脏页
+        List<Page> dirtyPages = buffer.values().stream().filter(p -> p.isDirty() != null).collect(Collectors.toList());
+        for (Page page : dirtyPages) {
+            DbFile dbFile = Database.getCatalog().getDatabaseFile(page.getId().getTableId());
+            dbFile.writePage(page);
+        }
 
     }
 
@@ -243,6 +249,7 @@ public class BufferPool {
     public synchronized void discardPage(PageId pid) {
         // some code goes here
         // not necessary for lab1
+        buffer.remove(pid);
     }
 
     /**
@@ -252,7 +259,11 @@ public class BufferPool {
      */
     private synchronized void flushPage(PageId pid) throws IOException {
         // some code goes here
-        // not necessary for lab1
+        if (buffer.containsKey(pid)) {
+            Page page = buffer.get(pid);
+            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+            dbFile.writePage(page);
+        }
     }
 
     /**
@@ -269,8 +280,17 @@ public class BufferPool {
      */
     private synchronized void evictPage() throws DbException {
         // some code goes here
-        // not necessary for lab1
-        //LRU移除pool头部的元素 如果是脏的需要刷盘
+        //LRU移除pool头部的元素 如果是脏页需要刷盘
+        PageId first = buffer.keySet().iterator().next();
+        Page page = buffer.get(first);
+        if (page.isDirty() != null) {
+            try {
+                flushPage(first);
+            } catch (IOException e) {
+                throw new DbException(e.getMessage());
+            }
+        }
+        buffer.remove(first);
     }
 
 }
