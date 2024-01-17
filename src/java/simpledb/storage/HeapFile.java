@@ -130,11 +130,7 @@ public class HeapFile implements DbFile {
         do {
             pgNo++;
             page = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), pgNo), Permissions.READ_WRITE);
-            //pages.putIfAbsent(page.getId().hashCode(), page);
         } while (page.getNumEmptySlots() == 0);
-        HeapPageId newPageId = new HeapPageId(recordId.getPageId().getTableId(), pgNo);
-        //t.setRecordId(new RecordId(newPageId, recordId.getTupleNumber()));
-        //pages.putIfAbsent(newPageId.hashCode(), page);
         page.insertTuple(t);
         if (pgNo >= numPages()) {
             writePage(page);

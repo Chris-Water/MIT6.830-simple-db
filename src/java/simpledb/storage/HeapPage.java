@@ -298,13 +298,13 @@ public class HeapPage implements Page {
         if (!td.equals(t.getTupleDesc())) {
             throw new DbException("tupleDesc is mismatch");
         }
-        //更新插入元素的真实recordId
-        t.setRecordId(new RecordId(pid, t.getRecordId().getTupleNumber()));
         //找到一个未使用的槽
         OptionalInt emptySlot = IntStream.range(0, numSlots).filter(i -> !isSlotUsed(i)).findFirst();
         if (emptySlot.isPresent()) {
             tuples[emptySlot.getAsInt()] = t;
             markSlotUsed(emptySlot.getAsInt(), true);
+            //更新插入元素的真实recordId
+            t.setRecordId(new RecordId(pid, emptySlot.getAsInt()));
         }
     }
 
