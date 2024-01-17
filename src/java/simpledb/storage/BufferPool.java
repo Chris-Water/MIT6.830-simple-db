@@ -40,7 +40,7 @@ public class BufferPool {
     private static final int DEFAULT_PAGE_SIZE = 4096;
     private static int pageSize = DEFAULT_PAGE_SIZE;
     private final Integer numPages;
-    private final Map<Integer, Page> buffer;
+    private final Map<PageId, Page> buffer;
     private final ReentrantLock lock;
     private final Map<TransactionId, Condition> transactionConditions;
     private TransactionId currentTid;
@@ -98,19 +98,19 @@ public class BufferPool {
             currentTid = tid;
             //用LRU算法作为淘汰策略
             Page page;
-            if (!buffer.containsKey(pid.hashCode())) {
+            if (!buffer.containsKey(pid)) {
                 //缓存未命中
                 DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
                 page = dbFile.readPage(pid);
-                buffer.put(pid.hashCode(), page);
+                buffer.put(pid, page);
                 if (buffer.size() > numPages) {
                     evictPage();
                 }
             } else {
                 // 返回页面
-                page = buffer.get(pid.hashCode());
-                buffer.remove(pid.hashCode());
-                buffer.put(pid.hashCode(), page);
+                page = buffer.get(pid);
+                buffer.remove(pid);
+                buffer.put(pid, page);
             }
             currentTid = null;
             condition.signalAll(); // 唤醒等待的事务
@@ -190,7 +190,7 @@ public class BufferPool {
             //标记脏页
             page.markDirty(true, tid);
             //将脏页添加到缓存
-            buffer.put(page.hashCode(), page);
+            buffer.put(page.getId(), page);
         });
     }
 
@@ -215,7 +215,7 @@ public class BufferPool {
             //标记脏页
             page.markDirty(true, tid);
             //将脏页添加到缓存
-            buffer.put(page.hashCode(), page);
+            buffer.put(page.getId(), page);
         });
 
     }
