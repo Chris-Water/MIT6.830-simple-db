@@ -242,10 +242,10 @@ public class TestUtil {
      * Mock SeqScan class for unit testing.
      */
     public static class MockScan implements OpIterator {
-        private int cur;
         private final int low;
         private final int high;
         private final int width;
+        private int cur;
 
         /**
          * Creates a fake SeqScan that returns tuples sequentially with 'width'
@@ -310,10 +310,10 @@ public class TestUtil {
         final TransactionId tid;
         final PageId pid;
         final Permissions perm;
-        boolean acquired;
-        Exception error;
         final Object alock;
         final Object elock;
+        boolean acquired;
+        Exception error;
 
         /**
          * @param tid  the transaction on whose behalf we want to acquire the lock
@@ -370,6 +370,9 @@ public class TestUtil {
      * JUnit fixture that creates a heap file and cleans it up afterward.
      */
     public static abstract class CreateHeapFile {
+        private final File emptyFile;
+        protected HeapFile empty;
+
         protected CreateHeapFile() {
             try {
                 emptyFile = File.createTempFile("empty", ".dat");
@@ -387,8 +390,5 @@ public class TestUtil {
                 throw new RuntimeException(e);
             }
         }
-
-        protected HeapFile empty;
-        private final File emptyFile;
     }
 }

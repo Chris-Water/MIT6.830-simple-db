@@ -220,6 +220,10 @@ public class Catalog {
         public String getPrimaryKey() {
             return primaryKey;
         }
+
+        public int getId() {
+            return file.getId();
+        }
     }
 }
 

@@ -9,6 +9,7 @@ import simpledb.transaction.TransactionId;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -39,7 +40,7 @@ public class BufferPool {
     private static final int DEFAULT_PAGE_SIZE = 4096;
     private static int pageSize = DEFAULT_PAGE_SIZE;
     private final Integer numPages;
-    private final Map<Integer, Page> bufferPool;
+    private final Map<Integer, Page> buffer;
     private final ReentrantLock lock;
     private final Map<TransactionId, Condition> transactionConditions;
     private TransactionId currentTid;
@@ -52,7 +53,7 @@ public class BufferPool {
     public BufferPool(int numPages) {
         // some code goes here
         this.numPages = numPages;
-        bufferPool = new LinkedHashMap<>(numPages);
+        buffer = new LinkedHashMap<>(numPages);
         lock = new ReentrantLock();
         transactionConditions = new HashMap<>();
     }
@@ -97,19 +98,19 @@ public class BufferPool {
             currentTid = tid;
             //用LRU算法作为淘汰策略
             Page page;
-            if (!bufferPool.containsKey(pid.hashCode())) {
+            if (!buffer.containsKey(pid.hashCode())) {
                 //缓存未命中
                 DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
                 page = dbFile.readPage(pid);
-                bufferPool.put(pid.hashCode(), page);
-                if (bufferPool.size() > numPages) {
+                buffer.put(pid.hashCode(), page);
+                if (buffer.size() > numPages) {
                     evictPage();
                 }
             } else {
                 // 返回页面
-                page = bufferPool.get(pid.hashCode());
-                bufferPool.remove(pid.hashCode());
-                bufferPool.put(pid.hashCode(), page);
+                page = buffer.get(pid.hashCode());
+                buffer.remove(pid.hashCode());
+                buffer.put(pid.hashCode(), page);
             }
             currentTid = null;
             condition.signalAll(); // 唤醒等待的事务
@@ -183,7 +184,14 @@ public class BufferPool {
      */
     public void insertTuple(TransactionId tid, int tableId, Tuple t) throws DbException, IOException, TransactionAbortedException {
         // some code goes here
-        // not necessary for lab1
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
+        List<Page> pages = dbFile.insertTuple(tid, t);
+        pages.forEach(page -> {
+            //标记脏页
+            page.markDirty(true, tid);
+            //将脏页添加到缓存
+            buffer.put(page.hashCode(), page);
+        });
     }
 
     /**
@@ -201,7 +209,15 @@ public class BufferPool {
      */
     public void deleteTuple(TransactionId tid, Tuple t) throws DbException, IOException, TransactionAbortedException {
         // some code goes here
-        // not necessary for lab1
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(t.getRecordId().getPageId().getTableId());
+        List<Page> pages = dbFile.deleteTuple(tid, t);
+        pages.forEach(page -> {
+            //标记脏页
+            page.markDirty(true, tid);
+            //将脏页添加到缓存
+            buffer.put(page.hashCode(), page);
+        });
+
     }
 
     /**

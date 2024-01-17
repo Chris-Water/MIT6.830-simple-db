@@ -19,6 +19,13 @@ public class HeapFileWriteTest extends TestUtil.CreateHeapFile {
     private TransactionId tid;
 
     /**
+     * JUnit suite target
+     */
+    public static junit.framework.Test suite() {
+        return new JUnit4TestAdapter(HeapFileWriteTest.class);
+    }
+
+    /**
      * Set up initial resources for each unit test.
      */
     @Before
@@ -39,18 +46,19 @@ public class HeapFileWriteTest extends TestUtil.CreateHeapFile {
     public void addTuple() throws Exception {
         // we should be able to add 504 tuples on an empty page.
         for (int i = 0; i < 504; ++i) {
-            empty.insertTuple(tid, Utility.getHeapTuple(i, 2));
+            empty.insertTuple(tid, Utility.getHeapTuple(i, empty.getId(), 2));
             assertEquals(1, empty.numPages());
         }
 
-        // the next 512 additions should live on a new page
+        // the next 512 additions should live on a new
+        // page
         for (int i = 0; i < 504; ++i) {
-            empty.insertTuple(tid, Utility.getHeapTuple(i, 2));
+            empty.insertTuple(tid, Utility.getHeapTuple(i, empty.getId(), 2));
             assertEquals(2, empty.numPages());
         }
 
         // and one more, just for fun...
-        empty.insertTuple(tid, Utility.getHeapTuple(0, 2));
+        empty.insertTuple(tid, Utility.getHeapTuple(0, empty.getId(), 2));
         assertEquals(3, empty.numPages());
     }
 
@@ -91,13 +99,6 @@ public class HeapFileWriteTest extends TestUtil.CreateHeapFile {
         // Since we have two full pages, we should see all of 2*numTuples.
         assertEquals(2 * numTuples, count);
         it.close();
-    }
-
-    /**
-     * JUnit suite target
-     */
-    public static junit.framework.Test suite() {
-        return new JUnit4TestAdapter(HeapFileWriteTest.class);
     }
 }
 
