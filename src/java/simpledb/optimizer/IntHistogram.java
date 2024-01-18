@@ -16,9 +16,6 @@ public class IntHistogram {
 
     private int max;
     private int count;
-    /**
-     * .Map <leftBound , count>
-     */
     private Map<Range, Integer> gram = new LinkedHashMap<>();
 
     /**
@@ -54,11 +51,6 @@ public class IntHistogram {
         }
     }
 
-//    public static void main(String[] args) {
-//        IntHistogram histogram = new IntHistogram(5, 1, 99);
-//        System.out.println(histogram);
-//    }
-
     /**
      * Add a value to the set of values that you are keeping a histogram of.
      *
@@ -80,7 +72,7 @@ public class IntHistogram {
      * <p>
      * For example, if "op" is "GREATER_THAN" and "v" is 5,
      * return your estimate of the fraction of elements that are greater than 5.
-     *
+     * 时间复杂度为 bucket的个数
      * @param op Operator
      * @param v  Value
      * @return Predicted selectivity of this particular operator and value
@@ -157,7 +149,6 @@ public class IntHistogram {
                 break;
             default:
         }
-        //计算其余部分
         return res;
     }
 
@@ -182,7 +173,7 @@ public class IntHistogram {
         return gram.toString();
     }
 
-    private class Range {
+    private static class Range {
         final int begin;
         final int end;
 

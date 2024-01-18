@@ -24,33 +24,11 @@ import static org.junit.Assert.assertEquals;
 public class BufferPoolWriteTest extends TestUtil.CreateHeapFile {
     private TransactionId tid;
 
-    // class to return multiple dirty pages on insert
-    static class HeapFileDuplicates extends HeapFile {
-
-        private final int duplicates;
-
-        public HeapFileDuplicates(File f, TupleDesc td, int duplicates) {
-            super(f, td);
-            this.duplicates = duplicates;
-        }
-
-        // this version of insertTuple inserts duplicate copies of the same tuple,
-        // each on a new page
-        @Override
-        public List<Page> insertTuple(TransactionId tid, Tuple t) throws DbException, IOException {
-            List<Page> dirtypages = new ArrayList<>();
-            for (int i = 0; i < duplicates; i++) {
-                // create a blank page
-                BufferedOutputStream bw = new BufferedOutputStream(new FileOutputStream(super.getFile(), true));
-                byte[] emptyData = HeapPage.createEmptyPageData();
-                bw.write(emptyData);
-                bw.close();
-                HeapPage p = new HeapPage(new HeapPageId(super.getId(), super.numPages() - 1), HeapPage.createEmptyPageData());
-                p.insertTuple(t);
-                dirtypages.add(p);
-            }
-            return dirtypages;
-        }
+    /**
+     * JUnit suite target
+     */
+    public static junit.framework.Test suite() {
+        return new JUnit4TestAdapter(BufferPoolWriteTest.class);
     }
 
     /**
@@ -143,11 +121,33 @@ public class BufferPoolWriteTest extends TestUtil.CreateHeapFile {
         assertEquals(10, count);
     }
 
-    /**
-     * JUnit suite target
-     */
-    public static junit.framework.Test suite() {
-        return new JUnit4TestAdapter(BufferPoolWriteTest.class);
+    // class to return multiple dirty pages on insert
+    static class HeapFileDuplicates extends HeapFile {
+
+        private final int duplicates;
+
+        public HeapFileDuplicates(File f, TupleDesc td, int duplicates) {
+            super(f, td);
+            this.duplicates = duplicates;
+        }
+
+        // this version of insertTuple inserts duplicate copies of the same tuple,
+        // each on a new page
+        @Override
+        public List<Page> insertTuple(TransactionId tid, Tuple t) throws DbException, IOException {
+            List<Page> dirtypages = new ArrayList<>();
+            for (int i = 0; i < duplicates; i++) {
+                // create a blank page
+                BufferedOutputStream bw = new BufferedOutputStream(new FileOutputStream(super.getFile(), true));
+                byte[] emptyData = HeapPage.createEmptyPageData();
+                bw.write(emptyData);
+                bw.close();
+                HeapPage p = new HeapPage(new HeapPageId(super.getId(), super.numPages() - 1), HeapPage.createEmptyPageData());
+                p.insertTuple(t);
+                dirtypages.add(p);
+            }
+            return dirtypages;
+        }
     }
 }
 
