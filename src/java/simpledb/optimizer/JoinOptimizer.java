@@ -8,6 +8,8 @@ import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * The JoinOptimizer class is responsible for ordering a series of joins
@@ -122,6 +124,14 @@ public class JoinOptimizer {
         return card <= 0 ? 1 : card;
     }
 
+    public static void main(String[] args) {
+        JoinOptimizer optimizer = new JoinOptimizer(null, null);
+        List<Integer> list = IntStream.range(0, 5).boxed().collect(Collectors.toList());
+        Set<Set<Integer>> sets = optimizer.enumerateSubsets(list, 3);
+        System.out.println(sets);
+
+    }
+
     /**
      * Estimate the cost of a join.
      * <p>
@@ -193,23 +203,25 @@ public class JoinOptimizer {
         Set<Set<T>> els = new HashSet<>();
         els.add(new HashSet<>());
         // Iterator<Set> it;
-        // long start = System.currentTimeMillis();
+        long start = System.currentTimeMillis();
 
         for (int i = 0; i < size; i++) {
             Set<Set<T>> newels = new HashSet<>();
             for (Set<T> s : els) {
                 for (T t : v) {
-                    Set<T> news = new HashSet<>(s);
-                    if (news.add(t)) {
-                        newels.add(news);
+                    if (s.contains(t)) {
+                        continue;
                     }
+                    Set<T> news = new HashSet<>(s);
+                    news.add(t);
+                    newels.add(news);
                 }
             }
             els = newels;
         }
-
+        long end = System.currentTimeMillis();
+        //System.out.println("enum subset spend time = " + (end - start) + "ms");
         return els;
-
     }
 
     /**
@@ -229,10 +241,31 @@ public class JoinOptimizer {
      *                          join, or or when another internal error occurs
      */
     public List<LogicalJoinNode> orderJoins(Map<String, TableStats> stats, Map<String, Double> filterSelectivities, boolean explain) throws ParsingException {
-
         // some code goes here
-        //Replace the following
-        return joins;
+        //计算最优的Join
+        PlanCache planCache = new PlanCache();
+        for (int i = 1; i <= joins.size(); i++) {
+            //枚举长度为i的子集
+            Set<Set<LogicalJoinNode>> subsets = enumerateSubsets(joins, i);
+            //计算最优子集的costCard
+            for (Set<LogicalJoinNode> subset : subsets) {
+                CostCard bestPlan = new CostCard();
+                bestPlan.cost = Double.MAX_VALUE;
+                for (LogicalJoinNode joinToRemove : subset) {
+                    // 计算 (subset-joinToRemove) join joinToRemove 的cost,card,order
+                    CostCard planCost = computeCostAndCardOfSubplan(stats, filterSelectivities, joinToRemove, subset, bestPlan.cost, planCache);
+                    if (planCost == null) {
+                        continue;
+                    }
+                    if (planCost.cost < bestPlan.cost) {
+                        //cost更小则更新计划
+                        bestPlan = planCost;
+                    }
+                }
+                planCache.addPlan(subset, bestPlan.cost, bestPlan.card, bestPlan.plan);
+            }
+        }
+        return planCache.getOrder(new HashSet<>(joins));
     }
 
     // ===================== Private Methods =================================

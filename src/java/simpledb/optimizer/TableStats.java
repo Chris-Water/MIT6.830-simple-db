@@ -177,7 +177,7 @@ public class TableStats {
      */
     public int estimateTableCardinality(double selectivityFactor) {
         // some code goes here
-        return (int) Math.ceil(totalTuples() * selectivityFactor);
+        return (int) (totalTuples() * selectivityFactor);
     }
 
     /**
