@@ -123,6 +123,17 @@ public class JoinOptimizer {
                 //case1: one of the attributes is a primary key
                 card = t1pkey ? card2 : card1;
             }
+        } else if (joinOp == Predicate.Op.NOT_EQUALS) {
+            //case2: no primary key
+            if (!t1pkey && !t2pkey) {
+                card = card1 * card2 - Math.max(card1, card2);
+            } else if (t1pkey && t2pkey) {
+                //case1: one of the attributes is a primary key
+                card = card1 * card2 - Math.min(card1, card2);
+            } else {
+                //case1: one of the attributes is a primary key
+                card = card1 * card2 - (t1pkey ? card2 : card1);
+            }
         } else {
             card = (int) (0.3 * card1 * card2);
         }
