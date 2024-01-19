@@ -32,12 +32,12 @@ public class JoinOptimizer {
     }
 
     /**
-     * Return best iterator for computing a given logical join, given the
+     * Return best itera0.tor for computing a given logical join, given the
      * specified statistics, and the provided left and right subplans. Note that
      * there is insufficient information to determine which plan should be the
      * inner/outer here -- because OpIterator's don't provide any cardinality
      * estimates, and stats only has information about the base tables. For this
-     * reason, the plan1
+     * reason, the plan1 be the inner
      *
      * @param lj    The join being considered
      * @param plan1 The left join node's child
@@ -107,6 +107,11 @@ public class JoinOptimizer {
     public static int estimateTableJoinCardinality(Predicate.Op joinOp, String table1Alias, String table2Alias, String field1PureName, String field2PureName, int card1, int card2, boolean t1pkey, boolean t2pkey, Map<String, TableStats> stats, Map<String, Integer> tableAliasToId) {
         int card = 1;
         // some code goes here
+        /**
+         * 估计联接基数的另一种方法是假设较小表中的每个值在较大表中都有匹配值。
+         * 那么连接选择性的公式是: 1/(Max (num-distinct (t1，column1) ，num-distinct (t2，column2))))。
+         * 这里，column1和 column2是联接属性。连接的基数是 t1和 t2的基数乘以选择性的产物。
+         */
         if (joinOp == Predicate.Op.EQUALS) {
             //case2: no primary key
             if (!t1pkey && !t2pkey) {
@@ -127,8 +132,10 @@ public class JoinOptimizer {
     public static void main(String[] args) {
         JoinOptimizer optimizer = new JoinOptimizer(null, null);
         List<Integer> list = IntStream.range(0, 5).boxed().collect(Collectors.toList());
-        Set<Set<Integer>> sets = optimizer.enumerateSubsets(list, 3);
-        System.out.println(sets);
+        long s = System.currentTimeMillis();
+        Set<Set<Integer>> sets = optimizer.enumerateSubsetsOptimal(list, 3);
+        long e = System.currentTimeMillis();
+        System.out.println("count = " + sets.size() + ",cost = " + (e - s) + "ms");
 
     }
 
@@ -202,9 +209,6 @@ public class JoinOptimizer {
     public <T> Set<Set<T>> enumerateSubsets(List<T> v, int size) {
         Set<Set<T>> els = new HashSet<>();
         els.add(new HashSet<>());
-        // Iterator<Set> it;
-        long start = System.currentTimeMillis();
-
         for (int i = 0; i < size; i++) {
             Set<Set<T>> newels = new HashSet<>();
             for (Set<T> s : els) {
@@ -219,9 +223,65 @@ public class JoinOptimizer {
             }
             els = newels;
         }
-        long end = System.currentTimeMillis();
-        //System.out.println("enum subset spend time = " + (end - start) + "ms");
         return els;
+
+    }
+
+    /**
+     * 例如 v = [0,1,2,3,4]  size = 3
+     * 用二进制数0 ~ 2^(v.length) - 1表示每个下标的元素是否选取，对应位取1表示选择对应下标的元素
+     * 如 [0,1,0,1,1] 从低位到高位表示 子集 [1,3,4] 对应的数字为26
+     * <p>
+     * 在这个优化的算法中，我们使用一个循环来遍历从 0 到 2^n-1 的所有数字。
+     * 这些数字的二进制表示形式刚好可以表示子集中元素的选择情况。
+     * 在循环中，我们使用一个内部循环来提取每个数字 i 的二进制位。
+     * 我们通过将 i 右移并检查最低位来提取二进制位的值。如果最低位为 1，则将对应位置上的元素添加到子集中。
+     * <p>
+     * 与位运算的方法相比，这种迭代法的优势在于它不需要进行位运算和计算二进制位数，
+     * 而是通过递增地处理数字 i 和列表索引来直接生成子集。这使得算法更加高效且易于理解。
+     * 这种迭代法的时间复杂度仍然是 O(2^n * n)，但它的效率通常比位运算的方法稍高。
+     *
+     * @param v
+     * @param size
+     * @param <T>
+     * @return
+     */
+    public <T> Set<Set<T>> enumerateSubsetsOptimal(List<T> v, int size) {
+        Set<Set<T>> subsets = new HashSet<>();
+        int n = v.size();
+        int max = 1 << n; // 2^n
+        for (int i = 0; i < max; i++) {
+            if (Integer.bitCount(i) == size) {
+                //当子集中元素满足size要求时收集结果
+                Set<T> subset = new HashSet<>();
+                int index = 0;
+                int j = i;
+                //通过将 i 右移并检查最低位来提取二进制位的值。如果最低位为 1，则将对应位置上的元素添加到子集中。
+                while (j > 0) {
+                    if ((j & 1) == 1) {
+                        subset.add(v.get(index));
+                    }
+                    j >>= 1;
+                    index++;
+                }
+                subsets.add(subset);
+            }
+        }
+        return subsets;
+    }
+
+    public <T> void genSubset(List<T> v, int size, Set<T> current, Set<Set<T>> result) {
+        if (current.size() == size) {
+            result.add(new HashSet<>(current));
+            return;
+        }
+        for (T t : v) {
+            if (!current.contains(t)) {
+                current.add(t);
+                genSubset(v, size, current, result);
+                current.remove(t);
+            }
+        }
     }
 
     /**
@@ -246,7 +306,7 @@ public class JoinOptimizer {
         PlanCache planCache = new PlanCache();
         for (int i = 1; i <= joins.size(); i++) {
             //枚举长度为i的子集
-            Set<Set<LogicalJoinNode>> subsets = enumerateSubsets(joins, i);
+            Set<Set<LogicalJoinNode>> subsets = enumerateSubsetsOptimal(joins, i);
             //计算最优子集的costCard
             for (Set<LogicalJoinNode> subset : subsets) {
                 CostCard bestPlan = new CostCard();
