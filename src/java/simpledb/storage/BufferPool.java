@@ -7,12 +7,10 @@ import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -42,9 +40,10 @@ public class BufferPool {
     private static int pageSize = DEFAULT_PAGE_SIZE;
     private final Integer numPages;
     private final Map<PageId, Page> buffer;
-    private final ReentrantLock lock;
-    private final Map<TransactionId, Condition> transactionConditions;
-    private TransactionId currentTid;
+    /**
+     * 该page对应的锁
+     */
+    private final Map<PageId, PageLock> locks;
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -55,8 +54,7 @@ public class BufferPool {
         // some code goes here
         this.numPages = numPages;
         buffer = new LinkedHashMap<>(numPages);
-        lock = new ReentrantLock();
-        transactionConditions = new HashMap<>();
+        locks = new ConcurrentHashMap<>();
     }
 
     public static int getPageSize() {
@@ -71,6 +69,10 @@ public class BufferPool {
     // THIS FUNCTION SHOULD ONLY BE USED FOR TESTING!!
     public static void resetPageSize() {
         BufferPool.pageSize = DEFAULT_PAGE_SIZE;
+    }
+
+    public static void main(String[] args) {
+
     }
 
     /**
@@ -89,38 +91,52 @@ public class BufferPool {
      * @param perm the requested permissions on the page
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm) throws TransactionAbortedException, DbException {
-        // some code goes here
-        lock.lock(); // 获取锁
-        try {
-            Condition condition = transactionConditions.computeIfAbsent(tid, k -> lock.newCondition());
-            while (currentTid != null && !tid.equals(currentTid)) {
-                condition.await(); // 阻塞事务
-            }
-            currentTid = tid;
-            //用LRU算法作为淘汰策略
-            Page page;
-            if (!buffer.containsKey(pid)) {
-                //缓存未命中
-                DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
-                page = dbFile.readPage(pid);
-                buffer.put(pid, page);
-                if (buffer.size() > numPages) {
-                    evictPage();
+        //为page初始化锁
+        PageLock pageLock = locks.computeIfAbsent(pid, k -> new PageLock(pid));
+        Page page;
+        if (perm == Permissions.READ_ONLY) {
+            //读请求
+            try {
+                while (!pageLock.trySharedLock(tid)) {
+                    pageLock.await();
                 }
-            } else {
-                // 返回页面
-                page = buffer.get(pid);
-                buffer.remove(pid);
-                buffer.put(pid, page);
+                page = getPage(pid);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
             }
-            currentTid = null;
-            condition.signalAll(); // 唤醒等待的事务
-            return page;
-        } catch (InterruptedException e) {
-            throw new TransactionAbortedException();
-        } finally {
-            lock.unlock(); // 释放锁
+        } else {
+            //写请求
+            //当持有读锁的事务进行写请求 ，若只有该事务持有读锁，则读锁升级为写锁
+            try {
+                while (!pageLock.tryExclusiveLock(tid)) {
+                    pageLock.await();
+                }
+                page = getPage(pid);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
         }
+        return page;
+    }
+
+    private Page getPage(PageId pid) throws DbException {
+        //用LRU算法作为淘汰策略
+        Page page;
+        if (!buffer.containsKey(pid)) {
+            //缓存未命中
+            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+            page = dbFile.readPage(pid);
+            buffer.put(pid, page);
+            if (buffer.size() > numPages) {
+                evictPage();
+            }
+        } else {
+            // 返回页面
+            page = buffer.get(pid);
+            buffer.remove(pid);
+            buffer.put(pid, page);
+        }
+        return page;
     }
 
     /**
@@ -134,7 +150,11 @@ public class BufferPool {
      */
     public void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
-        // not necessary for lab1|lab2
+        PageLock pageLock = locks.get(pid);
+        if (pageLock == null) {
+            return;
+        }
+        pageLock.unlock(tid);
     }
 
     /**
@@ -144,16 +164,15 @@ public class BufferPool {
      */
     public void transactionComplete(TransactionId tid) {
         // some code goes here
-        // not necessary for lab1|lab2
+        //释放事务相关的所有锁
     }
 
     /**
      * Return true if the specified transaction has a lock on the specified page
      */
     public boolean holdsLock(TransactionId tid, PageId p) {
-        // some code goes here
-        // not necessary for lab1|lab2
-        return false;
+        // some code goes here`
+        return locks.containsKey(p) && locks.get(p).isHoldLock(tid);
     }
 
     /**
@@ -291,6 +310,123 @@ public class BufferPool {
             }
         }
         buffer.remove(first);
+    }
+
+    static class PageLock {
+        final PageId pid;
+        final Condition condition;
+        /**
+         * 0-无锁
+         * 1-读锁
+         * 2-写锁
+         */
+        volatile LockState state = LockState.NO_LOCK;
+        volatile Set<TransactionId> holdLockTrans;
+
+        public PageLock(PageId pid) {
+            this.pid = pid;
+            holdLockTrans = new HashSet<>();
+            condition = new sync().condition;
+        }
+
+        public synchronized boolean trySharedLock(TransactionId tid) {
+            if (state == LockState.NO_LOCK) {
+                //无锁
+                state = LockState.SHARED_LOCK;
+                holdLockTrans.add(tid);
+                return true;
+            } else if (state == LockState.SHARED_LOCK) {
+                //有读锁
+                holdLockTrans.add(tid);
+                return true;
+            } else {
+                //有写锁
+                return holdLockTrans.contains(tid);
+            }
+        }
+
+        public void await() throws InterruptedException {
+            condition.await();
+        }
+
+
+        public synchronized boolean tryExclusiveLock(TransactionId tid) {
+            if (state == LockState.NO_LOCK) {
+                //无锁
+                state = LockState.EXCLUSIVE_LOCK;
+                holdLockTrans.add(tid);
+                return true;
+            } else if (state == LockState.SHARED_LOCK) {
+                //当前为读锁
+                // 持有者仅有当前tid时候upgrade为写锁
+                if (holdLockTrans.size() == 1 && holdLockTrans.contains(tid)) {
+                    state = LockState.EXCLUSIVE_LOCK;
+                    return true;
+                }
+                return false;
+            } else {
+                //当前为写锁
+                return holdLockTrans.contains(tid);
+            }
+        }
+
+        public synchronized void unlock(TransactionId tid) {
+            if (state == LockState.NO_LOCK) {
+                return;
+            }
+            if (state == LockState.SHARED_LOCK) {
+                holdLockTrans.remove(tid);
+                if (holdLockTrans.isEmpty()) {
+                    condition.signalAll();
+                    state = LockState.NO_LOCK;
+                }
+                return;
+            }
+            if (state == LockState.EXCLUSIVE_LOCK) {
+                holdLockTrans.remove(tid);
+                condition.signalAll();
+                state = LockState.NO_LOCK;
+
+            }
+        }
+
+        public boolean isHoldLock(TransactionId tid) {
+            return holdLockTrans.contains(tid);
+        }
+
+        enum LockState {
+            NO_LOCK, SHARED_LOCK, EXCLUSIVE_LOCK
+        }
+
+        private class sync extends AbstractQueuedSynchronizer {
+
+            public Condition condition = new ConditionObject();
+
+            @Override
+            protected boolean tryAcquire(int arg) {
+                return true;
+            }
+
+            @Override
+            protected boolean tryRelease(int arg) {
+                return true;
+            }
+
+            @Override
+            protected int tryAcquireShared(int arg) {
+                return 0;
+            }
+
+            @Override
+            protected boolean tryReleaseShared(int arg) {
+                return true;
+            }
+
+            @Override
+            protected boolean isHeldExclusively() {
+                return true;
+            }
+        }
     }
 
 }
