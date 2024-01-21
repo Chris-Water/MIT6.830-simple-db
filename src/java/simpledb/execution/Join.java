@@ -1,164 +1,158 @@
 package simpledb.execution;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import simpledb.common.DbException;
 import simpledb.storage.Tuple;
 import simpledb.storage.TupleDesc;
 import simpledb.transaction.TransactionAbortedException;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-
 /**
  * The Join operator implements the relational join operation.
  */
 public class Join extends Operator {
-    private static final long serialVersionUID = 1L;
-    private OpIterator child1;
-    private OpIterator child2;
-    private JoinPredicate joinPredicate;
-    private TupleDesc joinDesc;
-    private TupleDesc desc1;
-    private TupleDesc desc2;
-    private List<Tuple> joinTuples = new ArrayList<>();
 
-    private Iterator<Tuple> it = null;
+  private static final long serialVersionUID = 1L;
+  private OpIterator child1;
+  private OpIterator child2;
+  private JoinPredicate joinPredicate;
+  private TupleDesc joinDesc;
+  private TupleDesc desc1;
+  private TupleDesc desc2;
+  private List<Tuple> joinTuples = new ArrayList<>();
 
-    /**
-     * Constructor. Accepts two children to join and the predicate to join them
-     * on
-     *
-     * @param p      The predicate to use to join the children
-     * @param child1 Iterator for the left(outer) relation to join
-     * @param child2 Iterator for the right(inner) relation to join
-     */
-    public Join(JoinPredicate p, OpIterator child1, OpIterator child2) {
-        // some code goes here
-        joinPredicate = p;
-        this.child1 = child1;
-        this.child2 = child2;
-        desc1 = child1.getTupleDesc();
-        desc2 = child2.getTupleDesc();
-        joinDesc = TupleDesc.merge(desc1, desc2);
+  private Iterator<Tuple> it = null;
+
+  /**
+   * Constructor. Accepts two children to join and the predicate to join them on
+   *
+   * @param p      The predicate to use to join the children
+   * @param child1 Iterator for the left(outer) relation to join
+   * @param child2 Iterator for the right(inner) relation to join
+   */
+  public Join(JoinPredicate p, OpIterator child1, OpIterator child2) {
+    // some code goes here
+    joinPredicate = p;
+    this.child1 = child1;
+    this.child2 = child2;
+    desc1 = child1.getTupleDesc();
+    desc2 = child2.getTupleDesc();
+    joinDesc = TupleDesc.merge(desc1, desc2);
+  }
+
+  public JoinPredicate getJoinPredicate() {
+    // some code goes here
+    return joinPredicate;
+  }
+
+  /**
+   * @return the field name of join field1. Should be quantified by alias or table name.
+   */
+  public String getJoinField1Name() {
+    // some code goes here
+
+    return null;
+  }
+
+  /**
+   * @return the field name of join field2. Should be quantified by alias or table name.
+   */
+  public String getJoinField2Name() {
+    // some code goes here
+    return null;
+  }
+
+  /**
+   * @see TupleDesc#merge(TupleDesc, TupleDesc) for possible implementation logic.
+   */
+  @Override
+  public TupleDesc getTupleDesc() {
+    // some code goes here
+    return joinDesc;
+  }
+
+  @Override
+  public void open() throws DbException, NoSuchElementException, TransactionAbortedException {
+    // some code goes here
+    child1.open();
+    child2.open();
+    List<Tuple> t1 = new ArrayList<>();
+    List<Tuple> t2 = new ArrayList<>();
+    while (child1.hasNext()) {
+      t1.add(child1.next());
     }
-
-    public JoinPredicate getJoinPredicate() {
-        // some code goes here
-        return joinPredicate;
+    while (child2.hasNext()) {
+      t2.add(child2.next());
     }
-
-    /**
-     * @return the field name of join field1. Should be quantified by
-     * alias or table name.
-     */
-    public String getJoinField1Name() {
-        // some code goes here
-
-        return null;
-    }
-
-    /**
-     * @return the field name of join field2. Should be quantified by
-     * alias or table name.
-     */
-    public String getJoinField2Name() {
-        // some code goes here
-        return null;
-    }
-
-    /**
-     * @see TupleDesc#merge(TupleDesc, TupleDesc) for possible
-     * implementation logic.
-     */
-    @Override
-    public TupleDesc getTupleDesc() {
-        // some code goes here
-        return joinDesc;
-    }
-
-    @Override
-    public void open() throws DbException, NoSuchElementException, TransactionAbortedException {
-        // some code goes here
-        child1.open();
-        child2.open();
-        List<Tuple> t1 = new ArrayList<>();
-        List<Tuple> t2 = new ArrayList<>();
-        while (child1.hasNext()) {
-            t1.add(child1.next());
+    //小表驱动大表
+    for (Tuple tp1 : t1) {
+      for (Tuple tp2 : t2) {
+        if (joinPredicate.filter(tp1, tp2)) {
+          Tuple joinTuple = new Tuple(joinDesc);
+          int i = 0;
+          for (; i < desc1.numFields(); i++) {
+            joinTuple.setField(i, tp1.getField(i));
+          }
+          for (int j = 0; j < desc2.numFields(); j++, i++) {
+            joinTuple.setField(i, tp2.getField(j));
+          }
+          joinTuples.add(joinTuple);
         }
-        while (child2.hasNext()) {
-            t2.add(child2.next());
-        }
-        //小表驱动大表
-        for (Tuple tp1 : t1) {
-            for (Tuple tp2 : t2) {
-                if (joinPredicate.filter(tp1, tp2)) {
-                    Tuple joinTuple = new Tuple(joinDesc);
-                    int i = 0;
-                    for (; i < desc1.numFields(); i++) {
-                        joinTuple.setField(i, tp1.getField(i));
-                    }
-                    for (int j = 0; j < desc2.numFields(); j++, i++) {
-                        joinTuple.setField(i, tp2.getField(j));
-                    }
-                    joinTuples.add(joinTuple);
-                }
-            }
-        }
-        it = joinTuples.iterator();
-        super.open();
+      }
     }
+    it = joinTuples.iterator();
+    super.open();
+  }
 
-    @Override
-    public void close() {
-        // some code goes here
-        super.close();
-        it = null;
-    }
+  @Override
+  public void close() {
+    // some code goes here
+    super.close();
+    it = null;
+  }
 
-    @Override
-    public void rewind() throws DbException, TransactionAbortedException {
-        // some code goes here
-        it = joinTuples.iterator();
-    }
+  @Override
+  public void rewind() throws DbException, TransactionAbortedException {
+    // some code goes here
+    it = joinTuples.iterator();
+  }
 
-    /**
-     * Returns the next tuple generated by the join, or null if there are no
-     * more tuples. Logically, this is the next tuple in r1 cross r2 that
-     * satisfies the join predicate. There are many possible implementations;
-     * the simplest is a nested loops join.
-     * <p>
-     * Note that the tuples returned from this particular implementation of Join
-     * are simply the concatenation of joining tuples from the left and right
-     * relation. Therefore, if an equality predicate is used there will be two
-     * copies of the join attribute in the results. (Removing such duplicate
-     * columns can be done with an additional projection operator if needed.)
-     * <p>
-     * For example, if one tuple is {1,2,3} and the other tuple is {1,5,6},
-     * joined on equality of the first column, then this returns {1,2,3,1,5,6}.
-     *
-     * @return The next matching tuple.
-     * @see JoinPredicate#filter
-     */
-    @Override
-    protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-        // some code goes here
-        if (it != null && it.hasNext()) {
-            return it.next();
-        }
-        return null;
+  /**
+   * Returns the next tuple generated by the join, or null if there are no more tuples. Logically,
+   * this is the next tuple in r1 cross r2 that satisfies the join predicate. There are many
+   * possible implementations; the simplest is a nested loops join.
+   * <p>
+   * Note that the tuples returned from this particular implementation of Join are simply the
+   * concatenation of joining tuples from the left and right relation. Therefore, if an equality
+   * predicate is used there will be two copies of the join attribute in the results. (Removing such
+   * duplicate columns can be done with an additional projection operator if needed.)
+   * <p>
+   * For example, if one tuple is {1,2,3} and the other tuple is {1,5,6}, joined on equality of the
+   * first column, then this returns {1,2,3,1,5,6}.
+   *
+   * @return The next matching tuple.
+   * @see JoinPredicate#filter
+   */
+  @Override
+  protected Tuple fetchNext() throws TransactionAbortedException, DbException {
+    // some code goes here
+    if (it != null && it.hasNext()) {
+      return it.next();
     }
+    return null;
+  }
 
-    @Override
-    public OpIterator[] getChildren() {
-        // some code goes here
-        return null;
-    }
+  @Override
+  public OpIterator[] getChildren() {
+    // some code goes here
+    return null;
+  }
 
-    @Override
-    public void setChildren(OpIterator[] children) {
-        // some code goes here
-    }
+  @Override
+  public void setChildren(OpIterator[] children) {
+    // some code goes here
+  }
 
 }
