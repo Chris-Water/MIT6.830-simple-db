@@ -98,9 +98,11 @@ public class BufferPool {
             //读请求
             try {
                 while (!pageLock.trySharedLock(tid)) {
+                    //获取锁失败则加入等待队列
                     pageLock.await();
                 }
                 page = getPage(pid);
+
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
@@ -109,6 +111,7 @@ public class BufferPool {
             //当持有读锁的事务进行写请求 ，若只有该事务持有读锁，则读锁升级为写锁
             try {
                 while (!pageLock.tryExclusiveLock(tid)) {
+                    //获取锁失败则加入等待队列
                     pageLock.await();
                 }
                 page = getPage(pid);
@@ -131,7 +134,7 @@ public class BufferPool {
                 evictPage();
             }
         } else {
-            // 返回页面
+            // 从缓存获取页面 执行LRU
             page = buffer.get(pid);
             buffer.remove(pid);
             buffer.put(pid, page);
@@ -168,14 +171,6 @@ public class BufferPool {
     }
 
     /**
-     * Return true if the specified transaction has a lock on the specified page
-     */
-    public boolean holdsLock(TransactionId tid, PageId p) {
-        // some code goes here`
-        return locks.containsKey(p) && locks.get(p).isHoldLock(tid);
-    }
-
-    /**
      * Commit or abort a given transaction; release all locks associated to
      * the transaction.
      *
@@ -184,8 +179,17 @@ public class BufferPool {
      */
     public void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
-        // not necessary for lab1|lab2
+        //释放事务持有的所有page的锁
     }
+
+    /**
+     * Return true if the specified transaction has a lock on the specified page
+     */
+    public boolean holdsLock(TransactionId tid, PageId p) {
+        // some code goes here`
+        return locks.containsKey(p) && locks.get(p).isHoldLock(tid);
+    }
+
 
     /**
      * Add a tuple to the specified table on behalf of transaction tid.  Will
@@ -315,11 +319,6 @@ public class BufferPool {
     static class PageLock {
         final PageId pid;
         final Condition condition;
-        /**
-         * 0-无锁
-         * 1-读锁
-         * 2-写锁
-         */
         volatile LockState state = LockState.NO_LOCK;
         volatile Set<TransactionId> holdLockTrans;
 
@@ -327,6 +326,15 @@ public class BufferPool {
             this.pid = pid;
             holdLockTrans = new HashSet<>();
             condition = new sync().condition;
+        }
+
+        /**
+         * 锁状态
+         *
+         * @return 返回锁状态
+         */
+        public LockState lockState() {
+            return state;
         }
 
         public synchronized boolean trySharedLock(TransactionId tid) {
@@ -391,7 +399,7 @@ public class BufferPool {
         }
 
         public boolean isHoldLock(TransactionId tid) {
-            return holdLockTrans.contains(tid);
+            return state != LockState.NO_LOCK && holdLockTrans.contains(tid);
         }
 
         enum LockState {

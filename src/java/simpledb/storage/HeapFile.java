@@ -127,6 +127,10 @@ public class HeapFile implements DbFile {
         do {
             pgNo++;
             page = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), pgNo), Permissions.READ_WRITE);
+            if (page.getNumEmptySlots() == 0) {
+                //如果该页已满则该page不会影响本事务的结果 释放锁
+                Database.getBufferPool().unsafeReleasePage(tid, page.getId());
+            }
         } while (page.getNumEmptySlots() == 0);
         page.insertTuple(t);
         if (pgNo >= numPages()) {
@@ -170,6 +174,10 @@ public class HeapFile implements DbFile {
 //                curp = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), pgNo), Permissions.READ_ONLY);
 //            } while (curp.numSlots == curp.getNumEmptySlots());
             curp = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), 0), Permissions.READ_ONLY);
+            if (curp.getNumEmptySlots() == curp.numSlots) {
+                //如果该page是空页则可以释放sharedLock
+                Database.getBufferPool().unsafeReleasePage(tid, curp.getId());
+            }
             it = curp.iterator();
         }
 
@@ -191,6 +199,10 @@ public class HeapFile implements DbFile {
                     curp = null;
                 } else {
                     curp = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), pNo), Permissions.READ_ONLY);
+                    if (curp.getNumEmptySlots() == curp.numSlots) {
+                        //如果该page是空页则可以释放sharedLock
+                        Database.getBufferPool().unsafeReleasePage(tid, curp.getId());
+                    }
                     //跳过空页面
                     it = curp.iterator();
                     if (!it.hasNext()) {
