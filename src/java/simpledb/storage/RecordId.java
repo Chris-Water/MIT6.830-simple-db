@@ -1,16 +1,16 @@
 package simpledb.storage;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * A RecordId is a reference to a specific tuple on a specific page of a specific table.
  */
 public class RecordId implements Serializable {
 
+  private static final long serialVersionUID = 1L;
   private PageId pageId;
   private int tupleNumber;
-
-  private static final long serialVersionUID = 1L;
 
   /**
    * Creates a new RecordId referring to the specified PageId and tuple number.
@@ -64,7 +64,7 @@ public class RecordId implements Serializable {
   @Override
   public int hashCode() {
     // some code goes here
-    return pageId.hashCode() + tupleNumber;
+    return Objects.hash(pageId, tupleNumber);
   }
 
 }

@@ -1,5 +1,7 @@
 package simpledb.storage;
 
+import java.util.Objects;
+
 /**
  * Unique identifier for HeapPage objects.
  */
@@ -47,7 +49,7 @@ public class HeapPageId implements PageId {
   @Override
   public int hashCode() {
     // some code goes here
-    return tableId + pageNumber;
+    return Objects.hash(tableId, pageNumber);
   }
 
   /**
@@ -81,4 +83,8 @@ public class HeapPageId implements PageId {
     return data;
   }
 
+  @Override
+  public String toString() {
+    return "pid=" + "(" + tableId + "," + pageNumber + ")";
+  }
 }

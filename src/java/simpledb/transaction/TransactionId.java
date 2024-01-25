@@ -8,9 +8,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class TransactionId implements Serializable {
 
-  private static final long serialVersionUID = 1L;
-
   static final AtomicLong counter = new AtomicLong(0);
+  private static final long serialVersionUID = 1L;
   final long myid;
 
   public TransactionId() {
@@ -34,6 +33,11 @@ public class TransactionId implements Serializable {
     }
     TransactionId other = (TransactionId) obj;
     return myid == other.myid;
+  }
+
+  @Override
+  public String toString() {
+    return "tid=" + myid;
   }
 
   @Override
