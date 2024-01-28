@@ -116,7 +116,7 @@ public class BufferPool {
 
                 while (!pageLock.trySharedLock(tid, deadLockDetectGraph)) {
                     //获取锁失败则加入等待队列
-                    pageLock.wait();
+                    pageLock.await();
                 }
 
                 page = getPage(pid, tid);
@@ -133,7 +133,7 @@ public class BufferPool {
 
                 while (!pageLock.tryExclusiveLock(tid, deadLockDetectGraph)) {
                     //获取锁失败则加入等待队列
-                    pageLock.wait();
+                    pageLock.await();
                 }
 
                 page = getPage(pid, tid);
@@ -435,7 +435,7 @@ public class BufferPool {
         }
 
         public synchronized void await() throws InterruptedException {
-            condition.await();
+            this.wait();
         }
 
         public synchronized boolean tryExclusiveLock(TransactionId tid, DeadLockDetectGraph deadLockDetectGraph) throws TransactionAbortedException {
@@ -460,9 +460,14 @@ public class BufferPool {
             } else if (state == LockState.SHARED_LOCK) {
                 //当前为读锁
                 // 持有者仅有当前tid时候upgrade为写锁
-                if (holdLockTrans.size() == 1 && holdLockTrans.contains(tid)) {
-                    state = LockState.EXCLUSIVE_LOCK;
-                    return true;
+                if (holdLockTrans.contains(tid)) {
+                    if (holdLockTrans.size() == 1) {
+                        state = LockState.EXCLUSIVE_LOCK;
+                        return true;
+                    } else {
+                        //如果升级失败有死锁
+                        throw new TransactionAbortedException();
+                    }
                 }
                 return false;
             } else {
