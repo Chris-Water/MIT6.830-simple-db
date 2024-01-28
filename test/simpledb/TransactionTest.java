@@ -45,7 +45,6 @@ public class TransactionTest extends TestUtil.CreateHeapFile {
         this.p2 = new HeapPageId(empty.getId(), 2);
         this.tid1 = new TransactionId();
         this.tid2 = new TransactionId();
-
         // forget about locks associated to tid, so they don't conflict with
         // test cases
         bp.getPage(tid, p0, Permissions.READ_WRITE).markDirty(true, tid);
@@ -65,9 +64,13 @@ public class TransactionTest extends TestUtil.CreateHeapFile {
         bp.getPage(tid1, p0, Permissions.READ_ONLY);
         bp.getPage(tid1, p1, Permissions.READ_WRITE);
         bp.transactionComplete(tid1, true);
+        bp.getPage(tid2, p0, Permissions.READ_WRITE);
+        bp.getPage(tid2, p0, Permissions.READ_WRITE);
+    }
 
-        bp.getPage(tid2, p0, Permissions.READ_WRITE);
-        bp.getPage(tid2, p0, Permissions.READ_WRITE);
+    private void printLockStateAndDeadLock() {
+        Database.getBufferPool().printLockState();
+        Database.getBufferPool().printDeadLockDetectionGraph();
     }
 
     /**
@@ -83,11 +86,14 @@ public class TransactionTest extends TestUtil.CreateHeapFile {
 
         p.insertTuple(t);
         p.markDirty(true, tid1);
+        printLockStateAndDeadLock();
         bp.transactionComplete(tid1, commit);
-
+        printLockStateAndDeadLock();
         // now, flush the buffer pool and access the page again from disk.
         bp = Database.resetBufferPool(BufferPool.DEFAULT_PAGES);
         p = (HeapPage) bp.getPage(tid2, p2, Permissions.READ_WRITE);
+        printLockStateAndDeadLock();
+
         Iterator<Tuple> it = p.iterator();
 
         boolean found = false;

@@ -88,7 +88,7 @@ public class BufferPool {
     }
 
     public void printDeadLockDetectionGraph() {
-        System.out.println("==================================DeadLockDetectionGraph==================================");
+        System.out.println("==================================DeadLock Detection Graph==================================");
         deadLockDetectGraph.printGraph();
     }
 
@@ -109,16 +109,20 @@ public class BufferPool {
         //为page初始化锁
         PageLock pageLock = locks.computeIfAbsent(pid, k -> new PageLock(pid));
         Page page;
+
         if (perm == Permissions.READ_ONLY) {
             //读请求
             try {
+
                 while (!pageLock.trySharedLock(tid, deadLockDetectGraph)) {
                     //获取锁失败则加入等待队列
-                    pageLock.await();
+                    pageLock.wait();
                 }
+
                 page = getPage(pid, tid);
                 //事务获取page成功 加入 page->trans
                 deadLockDetectGraph.acquirePage(tid, pid);
+                return page;
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
@@ -126,25 +130,28 @@ public class BufferPool {
             //写请求
             //当持有读锁的事务进行写请求 ，若只有该事务持有读锁，则读锁升级为写锁
             try {
+
                 while (!pageLock.tryExclusiveLock(tid, deadLockDetectGraph)) {
                     //获取锁失败则加入等待队列
-                    pageLock.await();
+                    pageLock.wait();
                 }
+
                 page = getPage(pid, tid);
                 //事务获取page成功 加入 page->trans
                 deadLockDetectGraph.acquirePage(tid, pid);
+                return page;
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
         }
-        return page;
+
     }
 
     /**
      * 打印各个page的锁的状态
      */
     public void printLockState() {
-        System.out.println("==========================Lock State==========================");
+        System.out.println("==================================Lock State==================================");
         locks.values().forEach(System.out::println);
     }
 
@@ -177,7 +184,7 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param pid the ID of the page to unlock
      */
-    public void unsafeReleasePage(TransactionId tid, PageId pid) {
+    public synchronized void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
         PageLock pageLock = locks.get(pid);
         if (pageLock == null) {
@@ -202,8 +209,9 @@ public class BufferPool {
      * @param tid    the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
-    public void transactionComplete(TransactionId tid, boolean commit) {
+    public synchronized void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
+        System.out.println(tid + " is " + (commit ? "commit" : "abort"));
         Set<PageId> relevantPages = transRelevantPages.get(tid);
         if (commit) {
             //commit 将事务相关的page刷新到磁盘
@@ -363,6 +371,7 @@ public class BufferPool {
                     unsafeReleasePage(tid, pid);
                 }
                 buffer.remove(pid);
+                locks.remove(pid);
                 return;
             }
         }
@@ -398,7 +407,7 @@ public class BufferPool {
             return Collections.unmodifiableSet(holdLockTrans);
         }
 
-        public synchronized boolean trySharedLock(TransactionId tid, DeadLockDetectGraph deadLockDetectGraph) {
+        public synchronized boolean trySharedLock(TransactionId tid, DeadLockDetectGraph deadLockDetectGraph) throws TransactionAbortedException {
             //往死锁检测图 事务请求page 加入边 trans->page
             deadLockDetectGraph.requestPage(tid, pid);
             //检测死锁
@@ -406,9 +415,9 @@ public class BufferPool {
             if (deadLockNode != null) {
                 //存在死锁
                 // abort当前事务
-                Database.getBufferPool().transactionComplete(tid, false);
+                // Database.getBufferPool().transactionComplete(tid, false);
                 //return null;
-                return false;
+                throw new TransactionAbortedException();
             }
             if (state == LockState.NO_LOCK) {
                 //无锁
@@ -425,12 +434,11 @@ public class BufferPool {
             }
         }
 
-        public void await() throws InterruptedException {
+        public synchronized void await() throws InterruptedException {
             condition.await();
         }
 
-
-        public synchronized boolean tryExclusiveLock(TransactionId tid, DeadLockDetectGraph deadLockDetectGraph) {
+        public synchronized boolean tryExclusiveLock(TransactionId tid, DeadLockDetectGraph deadLockDetectGraph) throws TransactionAbortedException {
             //往死锁检测图 事务请求page 加入边 trans->page
             deadLockDetectGraph.requestPage(tid, pid);
             //检测死锁
@@ -438,9 +446,11 @@ public class BufferPool {
             if (deadLockNode != null) {
                 //存在死锁
                 // abort当前事务
-                Database.getBufferPool().transactionComplete(tid, false);
+                // Database.getBufferPool().transactionComplete(tid, false);
                 //return null;
-                return false;
+                Database.getBufferPool().printLockState();
+                Database.getBufferPool().printDeadLockDetectionGraph();
+                throw new TransactionAbortedException();
             }
             if (state == LockState.NO_LOCK) {
                 //无锁
@@ -462,25 +472,26 @@ public class BufferPool {
         }
 
         public synchronized void unlock(TransactionId tid) {
-            if (state == LockState.NO_LOCK) {
+            if (state == LockState.NO_LOCK || !holdLockTrans.contains(tid)) {
+                //如果无锁 / 事务不持有这个锁
                 return;
             }
             if (state == LockState.SHARED_LOCK) {
                 holdLockTrans.remove(tid);
+                this.notify();
                 if (holdLockTrans.isEmpty()) {
-                    condition.signalAll();
                     state = LockState.NO_LOCK;
                 }
                 return;
             }
             if (state == LockState.EXCLUSIVE_LOCK) {
                 holdLockTrans.remove(tid);
-                condition.signalAll();
+                this.notify();
                 state = LockState.NO_LOCK;
             }
         }
 
-        public boolean isHoldLock(TransactionId tid) {
+        public synchronized boolean isHoldLock(TransactionId tid) {
             return state != LockState.NO_LOCK && holdLockTrans.contains(tid);
         }
 
@@ -529,7 +540,7 @@ public class BufferPool {
         private final Map<Node, Set<Node>> graph;
 
         public DeadLockDetectGraph() {
-            graph = new HashMap<>();
+            graph = new ConcurrentHashMap<>();
         }
 
 
@@ -579,9 +590,6 @@ public class BufferPool {
             if (graph.containsKey(trans)) {
                 Set<Node> transEdge = graph.get(trans);
                 transEdge.remove(page);
-                if (transEdge.isEmpty()) {
-                    graph.remove(trans);
-                }
             }
             pageEdge = graph.computeIfAbsent(page, k -> new HashSet<>());
             //page->trans
@@ -596,7 +604,7 @@ public class BufferPool {
         public synchronized Node detectDeadLock() {
             //利用拓扑排序 每轮优先选择入度为0的节点加入有序列表
             List<Node> topSort = new ArrayList<>();
-            Map<Node, Set<Node>> clone = new HashMap<>(graph);
+            Map<Node, Set<Node>> clone = new ConcurrentHashMap<>(graph);
             while (!clone.isEmpty()) {
                 Set<Node> zeroEntry = new HashSet<>(clone.keySet());
                 //找到入度为0的顶点
@@ -616,7 +624,7 @@ public class BufferPool {
                     edge.removeAll(zeroEntry);
                 }
             }
-            System.out.println("TopSort:" + topSort);
+            //System.out.println("TopSort:" + topSort);
             return null;
         }
 

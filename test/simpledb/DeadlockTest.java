@@ -19,8 +19,8 @@ import static org.junit.Assert.assertFalse;
 
 public class DeadlockTest extends TestUtil.CreateHeapFile {
 
-    private static final int POLL_INTERVAL = 100;
-    private static final int WAIT_INTERVAL = 200;
+    private static final int POLL_INTERVAL = 500;
+    private static final int WAIT_INTERVAL = 1000;
     private PageId p0;
     private PageId p1;
     private TransactionId tid1, tid2;
@@ -95,8 +95,7 @@ public class DeadlockTest extends TestUtil.CreateHeapFile {
 
         // allow read locks to acquire
         Thread.sleep(POLL_INTERVAL);
-        Database.getBufferPool().printLockState();
-        Database.getBufferPool().printDeadLockDetectionGraph();
+
         LockGrabber lg1Write = startGrabber(tid1, p1, Permissions.READ_WRITE);
         LockGrabber lg2Write = startGrabber(tid2, p0, Permissions.READ_WRITE);
 
@@ -109,7 +108,6 @@ public class DeadlockTest extends TestUtil.CreateHeapFile {
             if (!lg1Write.acquired() && lg2Write.acquired()) {
                 break;
             }
-
             if (lg1Write.getError() != null) {
                 lg1Read.stop();
                 lg1Write.stop();
@@ -163,7 +161,8 @@ public class DeadlockTest extends TestUtil.CreateHeapFile {
             if (!lg1Write1.acquired() && lg2Write0.acquired()) {
                 break;
             }
-
+            Database.getBufferPool().printLockState();
+            Database.getBufferPool().printDeadLockDetectionGraph();
             if (lg1Write1.getError() != null) {
                 lg1Write0.stop();
                 lg1Write1.stop();
