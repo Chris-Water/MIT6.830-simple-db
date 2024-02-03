@@ -178,11 +178,13 @@ public class HeapFile implements DbFile {
 //            } while (curp.numSlots == curp.getNumEmptySlots());
             curp = (HeapPage) Database.getBufferPool()
                     .getPage(tid, new HeapPageId(getId(), 0), Permissions.READ_ONLY);
-            if (curp.getNumEmptySlots() == curp.numSlots) {
+            if (curp != null && curp.getNumEmptySlots() == curp.numSlots) {
                 //如果该page是空页则可以释放sharedLock
                 Database.getBufferPool().unsafeReleasePage(tid, curp.getId());
             }
-            it = curp.iterator();
+            if (curp != null) {
+                it = curp.iterator();
+            }
         }
 
         /**

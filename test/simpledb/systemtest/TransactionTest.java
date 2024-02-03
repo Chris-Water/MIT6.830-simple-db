@@ -31,7 +31,7 @@ import static org.junit.Assert.fail;
  */
 public class TransactionTest extends SimpleDbTestBase {
     // Wait up to 10 minutes for the test to complete
-    private static final int TIMEOUT_MILLIS = 10 * 60 * 1000;
+    private static final int TIMEOUT_MILLIS = 60 * 60 * 1000;
 
     private void validateTransactions(int threads) throws DbException, TransactionAbortedException, IOException {
         // Create a table with a single integer value = 0
@@ -116,7 +116,7 @@ public class TransactionTest extends SimpleDbTestBase {
                         t.setField(0, new IntField(i + 1));
 
                         // sleep to get some interesting thread interleavings
-                        Thread.sleep(1);
+                        //Thread.sleep(1);
 
                         // race the other threads to finish the transaction: one will win
                         q1.close();

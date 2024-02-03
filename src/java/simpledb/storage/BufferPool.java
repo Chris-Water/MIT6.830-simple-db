@@ -14,6 +14,9 @@ import java.util.concurrent.locks.Condition;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static simpledb.storage.BufferPool.LockManger.DeadLockDetectGraph.Node.NodeType.PAGE;
+import static simpledb.storage.BufferPool.LockManger.DeadLockDetectGraph.Node.NodeType.TRANSACTION;
+
 /**
  * BufferPool manages the reading and writing of pages into memory from disk. Access methods call
  * into it to retrieve pages, and it fetches pages from the appropriate location.
@@ -41,11 +44,8 @@ public class BufferPool {
     /**
      * 该page对应的锁
      */
-    private final Map<PageId, PageLock> locks;
-
+    private final LockManger lockManger;
     private final Map<TransactionId, Set<PageId>> transRelevantPages;
-
-    private DeadLockDetectGraph deadLockDetectGraph;
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -56,9 +56,8 @@ public class BufferPool {
         // some code goes here
         this.numPages = numPages;
         buffer = new LinkedHashMap<>(numPages);
-        locks = new ConcurrentHashMap<>();
+        lockManger = new LockManger();
         transRelevantPages = new ConcurrentHashMap<>();
-        deadLockDetectGraph = new DeadLockDetectGraph();
     }
 
     public static int getPageSize() {
@@ -88,8 +87,7 @@ public class BufferPool {
     }
 
     public void printDeadLockDetectionGraph() {
-        System.out.println("==================================DeadLock Detection Graph==================================");
-        deadLockDetectGraph.printGraph();
+        lockManger.printDeadLockDetectionGraph();
     }
 
     /**
@@ -106,53 +104,15 @@ public class BufferPool {
      * @param perm the requested permissions on the page
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm) throws TransactionAbortedException, DbException {
-        //为page初始化锁
-        PageLock pageLock = locks.computeIfAbsent(pid, k -> new PageLock(pid));
-        Page page;
-
-        if (perm == Permissions.READ_ONLY) {
-            //读请求
-            try {
-
-                while (!pageLock.trySharedLock(tid, deadLockDetectGraph)) {
-                    //获取锁失败则加入等待队列
-                    pageLock.await();
-                }
-
-                page = getPage(pid, tid);
-                //事务获取page成功 加入 page->trans
-                deadLockDetectGraph.acquirePage(tid, pid);
-                return page;
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        } else {
-            //写请求
-            //当持有读锁的事务进行写请求 ，若只有该事务持有读锁，则读锁升级为写锁
-            try {
-
-                while (!pageLock.tryExclusiveLock(tid, deadLockDetectGraph)) {
-                    //获取锁失败则加入等待队列
-                    pageLock.await();
-                }
-
-                page = getPage(pid, tid);
-                //事务获取page成功 加入 page->trans
-                deadLockDetectGraph.acquirePage(tid, pid);
-                return page;
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
+        lockManger.lock(tid, pid, perm);
+        return getPage(pid, tid);
     }
 
     /**
      * 打印各个page的锁的状态
      */
     public void printLockState() {
-        System.out.println("==================================Lock State==================================");
-        locks.values().forEach(System.out::println);
+        lockManger.printLockState();
     }
 
     private Page getPage(PageId pid, TransactionId tid) throws DbException {
@@ -162,10 +122,11 @@ public class BufferPool {
             //缓存未命中
             DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
             page = dbFile.readPage(pid);
-            buffer.put(pid, page);
-            if (buffer.size() > numPages) {
+            //淘汰策略
+            if (buffer.size() + 1 > numPages) {
                 evictPage();
             }
+            buffer.put(pid, page);
         } else {
             // 从缓存获取页面 执行LRU
             page = buffer.get(pid);
@@ -184,13 +145,9 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param pid the ID of the page to unlock
      */
-    public synchronized void unsafeReleasePage(TransactionId tid, PageId pid) {
+    public void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
-        PageLock pageLock = locks.get(pid);
-        if (pageLock == null) {
-            return;
-        }
-        pageLock.unlock(tid);
+        lockManger.unLock(tid, pid);
     }
 
     /**
@@ -209,9 +166,9 @@ public class BufferPool {
      * @param tid    the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
-    public synchronized void transactionComplete(TransactionId tid, boolean commit) {
+    public void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
-        System.out.println(tid + " is " + (commit ? "commit" : "abort"));
+        //System.out.println(tid + " is " + (commit ? "commit" : "abort"));
         Set<PageId> relevantPages = transRelevantPages.get(tid);
         if (commit) {
             //commit 将事务相关的page刷新到磁盘
@@ -223,23 +180,19 @@ public class BufferPool {
         } else {
             if (relevantPages != null) {
                 //abort 恢复事务相关的dirty page到未修改状态
-                relevantPages.stream().filter(buffer::containsKey).map(buffer::get).filter(page -> page.isDirty() != null).forEach(page -> buffer.put(page.getId(), page.getBeforeImage()));
+                relevantPages.stream().filter(buffer::containsKey).map(buffer::get).filter(Objects::nonNull).filter(page -> page.isDirty() != null).forEach(page -> buffer.put(page.getId(), page.getBeforeImage()));
             }
         }
-        //释放事务相关的所有page的锁
-        if (relevantPages != null) {
-            relevantPages.forEach(pid -> unsafeReleasePage(tid, pid));
-        }
-        //从死锁检测图中移除事务
-        deadLockDetectGraph.transFinish(tid);
+        //释放事务相关的锁
+        lockManger.transactionComplete(tid, relevantPages);
     }
 
     /**
      * Return true if the specified transaction has a lock on the specified page
      */
-    public boolean holdsLock(TransactionId tid, PageId p) {
+    public boolean holdsLock(TransactionId tid, PageId pid) {
         // some code goes here`
-        return locks.containsKey(p) && locks.get(p).isHoldLock(tid);
+        return lockManger.holdsLock(tid, pid);
     }
 
 
@@ -366,317 +319,422 @@ public class BufferPool {
             page = buffer.get(pid);
             if (page.isDirty() == null) {
                 //如果找到干净页
-                PageLock pageLock = locks.get(pid);
-                for (TransactionId tid : pageLock.getHoldLockTrans()) {
-                    unsafeReleasePage(tid, pid);
-                }
+                //释放所有事务对该页面的锁
+                lockManger.unLockAll(pid);
+                //从缓存移除
                 buffer.remove(pid);
-                locks.remove(pid);
                 return;
             }
         }
         if (page != null && page.isDirty() != null) {
             //如果全是脏页则抛出异常
-            throw new DbException("all pages are dirty");
+            throw new DbException("All pages are dirty");
         }
     }
 
-    private static class PageLock {
 
-        final PageId pid;
-        final Condition condition;
-        private volatile Set<TransactionId> holdLockTrans;
-        private volatile LockState state = LockState.NO_LOCK;
+    static class LockManger {
+        private final Map<PageId, PageLock> locks;
+        private DeadLockDetectGraph deadLockDetectGraph;
 
-        public PageLock(PageId pid) {
-            this.pid = pid;
-            holdLockTrans = new HashSet<>();
-            condition = new sync().condition;
+        public LockManger() {
+            locks = new ConcurrentHashMap<>();
+            deadLockDetectGraph = new DeadLockDetectGraph();
+        }
+
+        public boolean holdsLock(TransactionId tid, PageId pid) {
+            return locks.containsKey(pid) && locks.get(pid).isHoldLock(tid);
+        }
+
+        /**
+         * 加锁
+         *
+         * @param tid
+         * @param pid
+         * @param perm
+         * @throws TransactionAbortedException
+         * @throws InterruptedException
+         */
+        public void lock(TransactionId tid, PageId pid, Permissions perm) throws TransactionAbortedException {
+            //为page初始化锁
+            PageLock pageLock = locks.computeIfAbsent(pid, k -> new PageLock(pid));
+            try {
+                if (perm == Permissions.READ_ONLY) {
+                    //读请求
+                    while (!pageLock.trySharedLock(tid)) {
+                        //获取锁失败则加入等待队列
+                        pageLock.await();
+                    }
+                } else {
+                    //写请求
+                    while (!pageLock.tryExclusiveLock(tid)) {
+                        //获取锁失败则加入等待队列
+                        pageLock.await();
+                    }
+                }
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            //死锁检测图中得到请求的资源
+            deadLockDetectGraph.acquirePage(tid, pid);
+        }
+
+        /**
+         * 解锁
+         *
+         * @param tid
+         * @param pid
+         */
+        public void unLock(TransactionId tid, PageId pid) {
+            PageLock pageLock = locks.get(pid);
+            if (pageLock == null) {
+                return;
+            }
+            pageLock.unlock(tid);
+        }
+
+        public void unLockAll(PageId pid) {
+            PageLock pageLock = locks.get(pid);
+            for (TransactionId tid : pageLock.getHoldLockTrans()) {
+                unLock(tid, pid);
+            }
+            locks.remove(pid);
+        }
+
+        public synchronized void transactionComplete(TransactionId tid, Set<PageId> relevantPages) {
+            //释放事务相关的所有page的锁
+            if (relevantPages != null) {
+                relevantPages.forEach(pid -> unLock(tid, pid));
+            }
+            //从死锁检测图中移除事务
+            deadLockDetectGraph.transFinish(tid);
+        }
+
+        public void printDeadLockDetectionGraph() {
+            System.out.println("==================================DeadLock Detection Graph==================================");
+            deadLockDetectGraph.printGraph();
+        }
+
+        public void printLockState() {
+            System.out.println("==================================Lock State==================================");
+            locks.values().forEach(System.out::println);
         }
 
         /**
          * 锁状态
-         *
-         * @return 返回锁状态
          */
-        public LockState lockState() {
-            return state;
-        }
-
-        public Set<TransactionId> getHoldLockTrans() {
-            return Collections.unmodifiableSet(holdLockTrans);
-        }
-
-        public synchronized boolean trySharedLock(TransactionId tid, DeadLockDetectGraph deadLockDetectGraph) throws TransactionAbortedException {
-            //往死锁检测图 事务请求page 加入边 trans->page
-            deadLockDetectGraph.requestPage(tid, pid);
-            //检测死锁
-            DeadLockDetectGraph.Node deadLockNode = deadLockDetectGraph.detectDeadLock();
-            if (deadLockNode != null) {
-                //存在死锁
-                // abort当前事务
-                // Database.getBufferPool().transactionComplete(tid, false);
-                //return null;
-                throw new TransactionAbortedException();
-            }
-            if (state == LockState.NO_LOCK) {
-                //无锁
-                state = LockState.SHARED_LOCK;
-                holdLockTrans.add(tid);
-                return true;
-            } else if (state == LockState.SHARED_LOCK) {
-                //有读锁
-                holdLockTrans.add(tid);
-                return true;
-            } else {
-                //有写锁
-                return holdLockTrans.contains(tid);
-            }
-        }
-
-        public synchronized void await() throws InterruptedException {
-            this.wait();
-        }
-
-        public synchronized boolean tryExclusiveLock(TransactionId tid, DeadLockDetectGraph deadLockDetectGraph) throws TransactionAbortedException {
-            //往死锁检测图 事务请求page 加入边 trans->page
-            deadLockDetectGraph.requestPage(tid, pid);
-            //检测死锁
-            DeadLockDetectGraph.Node deadLockNode = deadLockDetectGraph.detectDeadLock();
-            if (deadLockNode != null) {
-                //存在死锁
-                // abort当前事务
-                // Database.getBufferPool().transactionComplete(tid, false);
-                //return null;
-                Database.getBufferPool().printLockState();
-                Database.getBufferPool().printDeadLockDetectionGraph();
-                throw new TransactionAbortedException();
-            }
-            if (state == LockState.NO_LOCK) {
-                //无锁
-                state = LockState.EXCLUSIVE_LOCK;
-                holdLockTrans.add(tid);
-                return true;
-            } else if (state == LockState.SHARED_LOCK) {
-                //当前为读锁
-                // 持有者仅有当前tid时候upgrade为写锁
-                if (holdLockTrans.contains(tid)) {
-                    if (holdLockTrans.size() == 1) {
-                        state = LockState.EXCLUSIVE_LOCK;
-                        return true;
-                    } else {
-                        //如果升级失败有死锁
-                        throw new TransactionAbortedException();
-                    }
-                }
-                return false;
-            } else {
-                //当前为写锁
-                return holdLockTrans.contains(tid);
-            }
-        }
-
-        public synchronized void unlock(TransactionId tid) {
-            if (state == LockState.NO_LOCK || !holdLockTrans.contains(tid)) {
-                //如果无锁 / 事务不持有这个锁
-                return;
-            }
-            if (state == LockState.SHARED_LOCK) {
-                holdLockTrans.remove(tid);
-                this.notify();
-                if (holdLockTrans.isEmpty()) {
-                    state = LockState.NO_LOCK;
-                }
-                return;
-            }
-            if (state == LockState.EXCLUSIVE_LOCK) {
-                holdLockTrans.remove(tid);
-                this.notify();
-                state = LockState.NO_LOCK;
-            }
-        }
-
-        public synchronized boolean isHoldLock(TransactionId tid) {
-            return state != LockState.NO_LOCK && holdLockTrans.contains(tid);
-        }
-
-        @Override
-        public String toString() {
-            return "PageLock{" + pid + ", holdLockTrans=" + holdLockTrans + ", state=" + state + '}';
-        }
-
         enum LockState {
             NO_LOCK, SHARED_LOCK, EXCLUSIVE_LOCK
         }
 
-        private class sync extends AbstractQueuedSynchronizer {
-
-            public Condition condition = new ConditionObject();
-
-            @Override
-            protected boolean tryAcquire(int arg) {
-                return true;
-            }
-
-            @Override
-            protected boolean tryRelease(int arg) {
-                return true;
-            }
-
-            @Override
-            protected int tryAcquireShared(int arg) {
-                return 0;
-            }
-
-            @Override
-            protected boolean tryReleaseShared(int arg) {
-                return true;
-            }
-
-            @Override
-            protected boolean isHeldExclusively() {
-                return true;
-            }
-        }
-    }
-
-    static class DeadLockDetectGraph {
-
-        private final Map<Node, Set<Node>> graph;
-
-        public DeadLockDetectGraph() {
-            graph = new ConcurrentHashMap<>();
-        }
-
-
         /**
-         * 事务请求Page资源
-         *
-         * @param tid
-         * @param pid
+         * 死锁检测图
          */
-        public synchronized void requestPage(TransactionId tid, PageId pid) {
-            Node<TransactionId> trans = new Node<>(tid, Type.TRANSACTION);
-            Node<PageId> page = new Node<>(pid, Type.PAGE);
-            //判断pid是否已经被Trans持有
-            if (graph.get(page) != null && graph.get(page).contains(trans)) {
-                return;
-            }
-            Set<Node> transEdge = graph.computeIfAbsent(trans, k -> new HashSet<>());
-            Set<Node> pageEdge = graph.computeIfAbsent(page, k -> new HashSet<>());
-            //trans->page
-            transEdge.add(page);
-        }
+        static class DeadLockDetectGraph {
 
-        public synchronized void transFinish(TransactionId tid) {
-            Node<TransactionId> trans = new Node<>(tid, Type.TRANSACTION);
-            //从顶点和边中删除 graph
-            graph.remove(trans);
-            for (Set<Node> edges : graph.values()) {
-                edges.remove(trans);
-            }
-        }
+            private final Map<Node, Set<Node>> graph;
 
-        /**
-         * 事务获得Page资源
-         *
-         * @param tid
-         * @param pid
-         */
-        public synchronized void acquirePage(TransactionId tid, PageId pid) {
-            Node<TransactionId> trans = new Node<>(tid, Type.TRANSACTION);
-            Node<PageId> page = new Node<>(pid, Type.PAGE);
-            //判断pid是否已经被Trans持有
-            Set<Node> pageEdge = graph.get(page);
-            if (pageEdge != null && pageEdge.contains(trans)) {
-                return;
+            public DeadLockDetectGraph() {
+                graph = new ConcurrentHashMap<>();
             }
-            //移除 trans->page的边
-            if (graph.containsKey(trans)) {
-                Set<Node> transEdge = graph.get(trans);
-                transEdge.remove(page);
-            }
-            pageEdge = graph.computeIfAbsent(page, k -> new HashSet<>());
-            //page->trans
-            pageEdge.add(trans);
-        }
 
-        /**
-         * 检测图中是否有环
-         *
-         * @return 如果无环返回null 有环返回环中的某个节点
-         */
-        public synchronized Node detectDeadLock() {
-            //利用拓扑排序 每轮优先选择入度为0的节点加入有序列表
-            List<Node> topSort = new ArrayList<>();
-            Map<Node, Set<Node>> clone = new ConcurrentHashMap<>(graph);
-            while (!clone.isEmpty()) {
-                Set<Node> zeroEntry = new HashSet<>(clone.keySet());
-                //找到入度为0的顶点
-                for (Set<Node> edge : clone.values()) {
-                    zeroEntry.removeIf(edge::contains);
+
+            /**
+             * 事务请求Page资源
+             *
+             * @param tid
+             * @param pid
+             */
+            public synchronized void requestPage(TransactionId tid, PageId pid) {
+                Node<TransactionId> trans = new Node<>(tid, TRANSACTION);
+                Node<PageId> page = new Node<>(pid, PAGE);
+                //判断pid是否已经被Trans持有
+                if (graph.get(page) != null && graph.get(page).contains(trans)) {
+                    return;
                 }
-                if (zeroEntry.isEmpty()) {
-                    //没有找到入度为0的点 存在环
-                    return clone.keySet().iterator().next();
-                }
-                //加入排序结果 从图中移除
-                topSort.addAll(zeroEntry);
-                //移除顶点
-                zeroEntry.forEach(clone::remove);
-                //移除边
-                for (Set<Node> edge : clone.values()) {
-                    edge.removeAll(zeroEntry);
+                Set<Node> transEdge = graph.computeIfAbsent(trans, k -> new HashSet<>());
+                Set<Node> pageEdge = graph.computeIfAbsent(page, k -> new HashSet<>());
+                //trans->page
+                transEdge.add(page);
+            }
+
+            public synchronized void transFinish(TransactionId tid) {
+                Node<TransactionId> trans = new Node<>(tid, TRANSACTION);
+                //从顶点和边中删除 graph
+                graph.remove(trans);
+                for (Set<Node> edges : graph.values()) {
+                    edges.remove(trans);
                 }
             }
-            //System.out.println("TopSort:" + topSort);
-            return null;
-        }
 
+            /**
+             * 事务获得Page资源
+             *
+             * @param tid
+             * @param pid
+             */
+            public synchronized void acquirePage(TransactionId tid, PageId pid) {
+                Node<TransactionId> trans = new Node<>(tid, TRANSACTION);
+                Node<PageId> page = new Node<>(pid, PAGE);
+                //判断pid是否已经被Trans持有
+                Set<Node> pageEdge = graph.get(page);
+                if (pageEdge != null && pageEdge.contains(trans)) {
+                    return;
+                }
+                //移除 trans->page的边
+                if (graph.containsKey(trans)) {
+                    Set<Node> transEdge = graph.get(trans);
+                    transEdge.remove(page);
+                }
+                pageEdge = graph.computeIfAbsent(page, k -> new HashSet<>());
+                //page->trans
+                pageEdge.add(trans);
+            }
 
-        public void printGraph() {
-            graph.forEach((k, v) -> {
-                System.out.println(k + " " + v);
-            });
-        }
+            public synchronized void releasePage(TransactionId tid, PageId pid) {
+                Node<TransactionId> trans = new Node<>(tid, TRANSACTION);
+                Node<PageId> page = new Node<>(pid, PAGE);
+                //移除 page->trans的边
+                Set<Node> pageEdge = graph.get(page);
+                if (pageEdge == null || !pageEdge.contains(trans)) {
+                    return;
+                }
+                pageEdge.remove(trans);
+            }
 
-        enum Type {
-            PAGE, TRANSACTION
-        }
-
-        static class Node<E> {
-
-            final Type type;
-            final E id;
-
-            Node(E id, Type type) {
-                this.id = id;
-                this.type = type;
+            /**
+             * 检测图中是否有环
+             *
+             * @return 如果无环返回null 有环返回环中的某个节点
+             */
+            public synchronized Node detectDeadLock() {
+                //利用拓扑排序 每轮优先选择入度为0的节点加入有序列表
+                List<Node> topSort = new ArrayList<>();
+                Map<Node, Set<Node>> clone = new ConcurrentHashMap<>(graph);
+                while (!clone.isEmpty()) {
+                    Set<Node> zeroEntry = new HashSet<>(clone.keySet());
+                    //找到入度为0的顶点
+                    for (Set<Node> edge : clone.values()) {
+                        zeroEntry.removeIf(edge::contains);
+                    }
+                    if (zeroEntry.isEmpty()) {
+                        //没有找到入度为0的点 存在环
+                        return clone.keySet().iterator().next();
+                    }
+                    //加入排序结果 从图中移除
+                    topSort.addAll(zeroEntry);
+                    //移除顶点
+                    zeroEntry.forEach(clone::remove);
+                    //移除边
+                    for (Set<Node> edge : clone.values()) {
+                        edge.removeAll(zeroEntry);
+                    }
+                }
+                //System.out.println("TopSort:" + topSort);
+                return null;
             }
 
 
-            @Override
-            public boolean equals(Object o) {
-                if (this == o) {
+            public void printGraph() {
+                graph.forEach((k, v) -> {
+                    System.out.println(k + " " + v);
+                });
+            }
+
+
+            static class Node<E> {
+                final NodeType type;
+                final E id;
+
+                Node(E id, NodeType type) {
+                    this.id = id;
+                    this.type = type;
+                }
+
+                @Override
+                public boolean equals(Object o) {
+                    if (this == o) {
+                        return true;
+                    }
+                    if (o == null || getClass() != o.getClass()) {
+                        return false;
+                    }
+                    Node<?> node = (Node<?>) o;
+                    return type == node.type && Objects.equals(id, node.id);
+                }
+
+                @Override
+                public int hashCode() {
+                    return Objects.hash(type, id);
+                }
+
+                @Override
+                public String toString() {
+                    return type + "(" + id + ")";
+                }
+
+                enum NodeType {
+                    PAGE, TRANSACTION
+                }
+            }
+        }
+
+        /**
+         * page的锁
+         */
+        private class PageLock {
+
+            final PageId pid;
+            final Condition condition;
+            private volatile Set<TransactionId> holdLockTrans;
+            private volatile LockState state = LockState.NO_LOCK;
+
+            public PageLock(PageId pid) {
+                this.pid = pid;
+                holdLockTrans = new HashSet<>();
+                condition = new sync().condition;
+            }
+
+            /**
+             * 锁状态
+             *
+             * @return 返回锁状态
+             */
+            public LockState lockState() {
+                return state;
+            }
+
+            public Set<TransactionId> getHoldLockTrans() {
+                return Collections.unmodifiableSet(holdLockTrans);
+            }
+
+            public void deadLockSolve(TransactionId tid, PageId pid) throws TransactionAbortedException {
+                //往死锁检测图 事务请求page 加入边 trans->page
+                deadLockDetectGraph.requestPage(tid, pid);
+                //检测死锁
+                DeadLockDetectGraph.Node deadLockNode = deadLockDetectGraph.detectDeadLock();
+                if (deadLockNode != null) {
+                    //存在死锁 干掉除了当前事务的其余事务
+                    // abort当前事务
+                    // Database.getBufferPool().transactionComplete(tid, false);
+                    deadLockDetectGraph.releasePage(tid, pid);
+                    throw new TransactionAbortedException("Exist DeadLock, Transaction Abort.");
+                }
+            }
+
+            public synchronized boolean trySharedLock(TransactionId tid) throws TransactionAbortedException {
+                //死锁检测和解除
+                deadLockSolve(tid, pid);
+                if (state == LockState.NO_LOCK) {
+                    //无锁
+                    state = LockState.SHARED_LOCK;
+                    holdLockTrans.add(tid);
                     return true;
+                } else if (state == LockState.SHARED_LOCK) {
+                    //有读锁
+                    holdLockTrans.add(tid);
+                    return true;
+                } else {
+                    //有写锁
+                    return holdLockTrans.contains(tid);
                 }
-                if (o == null || getClass() != o.getClass()) {
-                    return false;
-                }
-                Node<?> node = (Node<?>) o;
-                return type == node.type && Objects.equals(id, node.id);
             }
 
-            @Override
-            public int hashCode() {
-                return Objects.hash(type, id);
+            public synchronized void await() throws InterruptedException {
+                this.wait();
+            }
+
+            public synchronized boolean tryExclusiveLock(TransactionId tid) throws TransactionAbortedException {
+                //死锁检测和解除
+                deadLockSolve(tid, pid);
+                if (state == LockState.NO_LOCK) {
+                    //无锁
+                    state = LockState.EXCLUSIVE_LOCK;
+                    holdLockTrans.add(tid);
+                    return true;
+                } else if (state == LockState.SHARED_LOCK) {
+                    //当前为读锁
+                    // 持有者仅有当前tid时候upgrade为写锁
+                    if (holdLockTrans.contains(tid)) {
+                        if (holdLockTrans.size() == 1) {
+                            state = LockState.EXCLUSIVE_LOCK;
+                            return true;
+                        } else {
+                            throw new TransactionAbortedException("Exist DeadLock, Transaction Abort.");
+                        }
+                    }
+                    return false;
+                } else {
+                    //当前为写锁
+                    return holdLockTrans.contains(tid);
+                }
+            }
+
+            public synchronized void unlock(TransactionId tid) {
+                if (state == LockState.NO_LOCK || !holdLockTrans.contains(tid)) {
+                    //如果无锁 / 事务不持有这个锁
+                    return;
+                }
+                if (state == LockState.SHARED_LOCK) {
+                    holdLockTrans.remove(tid);
+                    this.notifyAll();
+                    if (holdLockTrans.isEmpty()) {
+                        state = LockState.NO_LOCK;
+                    }
+                    return;
+                }
+                if (state == LockState.EXCLUSIVE_LOCK) {
+                    holdLockTrans.remove(tid);
+                    this.notifyAll();
+                    state = LockState.NO_LOCK;
+                }
+                //从死锁检测图中移除page
+                deadLockDetectGraph.releasePage(tid, pid);
+            }
+
+            public synchronized boolean isHoldLock(TransactionId tid) {
+                return state != LockState.NO_LOCK && holdLockTrans.contains(tid);
             }
 
             @Override
             public String toString() {
-                return type + "(" + id + ")";
+                return "PageLock{" + pid + ", holdLockTrans=" + holdLockTrans + ", state=" + state + '}';
+            }
+
+
+            private class sync extends AbstractQueuedSynchronizer {
+
+                public Condition condition = new ConditionObject();
+
+                @Override
+                protected boolean tryAcquire(int arg) {
+                    return true;
+                }
+
+                @Override
+                protected boolean tryRelease(int arg) {
+                    return true;
+                }
+
+                @Override
+                protected int tryAcquireShared(int arg) {
+                    return 0;
+                }
+
+                @Override
+                protected boolean tryReleaseShared(int arg) {
+                    return true;
+                }
+
+                @Override
+                protected boolean isHeldExclusively() {
+                    return true;
+                }
             }
         }
+
     }
 
 }
+
+

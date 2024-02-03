@@ -5,8 +5,13 @@ package simpledb.transaction;
  */
 public class TransactionAbortedException extends Exception {
 
-  private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-  public TransactionAbortedException() {
-  }
+    public TransactionAbortedException(String message) {
+        super(message);
+    }
+
+    public TransactionAbortedException() {
+
+    }
 }
